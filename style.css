@@ -367,6 +367,90 @@
     width: 64px;
 }
 
+/* ── Раздел "Беременность" ── */
+.lw-checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    color: var(--lw-text-dim);
+    cursor: pointer;
+}
+
+.lw-checkbox-row input {
+    accent-color: var(--lw-card-accent, var(--lw-accent));
+}
+
+.lw-pregnancy-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+.lw-stage-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.lw-stage-label {
+    font-family: var(--lw-font-mono);
+    font-size: 0.75rem;
+    color: var(--lw-text-dim);
+}
+
+.lw-bar {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.lw-bar-fill {
+    height: 100%;
+    background: var(--lw-card-accent, var(--lw-accent));
+    border-radius: 3px;
+    transition: width 0.2s ease;
+}
+
+.lw-stage-pending {
+    opacity: 0.45;
+}
+
+.lw-btn {
+    background: color-mix(in srgb, var(--lw-card-accent, var(--lw-accent)) 22%, transparent);
+    border: 1px solid var(--lw-card-accent, var(--lw-accent));
+    color: var(--lw-text);
+    border-radius: 6px;
+    padding: 7px 12px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    align-self: flex-start;
+    font-family: var(--lw-font-body);
+}
+
+.lw-btn:hover {
+    background: color-mix(in srgb, var(--lw-card-accent, var(--lw-accent)) 32%, transparent);
+}
+
+.lw-btn-muted {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: var(--lw-border);
+    color: var(--lw-text-dim);
+}
+
+.lw-btn-muted:hover {
+    color: var(--lw-text);
+    border-color: var(--lw-text-dim);
+}
+
+.lw-dim-note {
+    color: var(--lw-text-dim);
+    font-size: 0.82rem;
+    font-style: italic;
+}
+
 /* ── Заглушка пустого раздела ── */
 .lw-empty {
     display: flex;

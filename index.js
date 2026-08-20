@@ -2,10 +2,11 @@
 // LIFEWEAVER — точка входа
 // ═══════════════════════════════════════════
 
-import { extensionName, UNIVERSE_PRESETS, UNIVERSE_ORDER, SECTIONS, summarizePreset } from './config.js';
+import { extensionName, UNIVERSE_PRESETS, UNIVERSE_ORDER, SECTIONS, summarizePreset, getTotalWeeks } from './config.js';
 import {
     getSettings, getActiveUniverse, setActiveUniverse, resetChatIdCache,
     getCharacterData, setDesignation, setCycleDay, getCycleSettings, carrierDisplayName,
+    setCanCarry, startPregnancy, endPregnancy, setPregnancyWeeks, setOffspringCount,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 
@@ -86,6 +87,10 @@ function renderContent() {
     }
     if (activeSection === 'cycle') {
         renderCycleSection(preset);
+        return;
+    }
+    if (activeSection === 'pregnancy') {
+        renderPregnancySection(preset);
         return;
     }
 
@@ -181,6 +186,118 @@ function bindCycleCardEvents() {
     $('.lw-day-input').on('change', function () {
         const who = $(this).data('who');
         setCycleDay(who, $(this).val());
+        saveSettings();
+        renderContent();
+    });
+}
+
+// ─── Раздел "Беременность" ───
+function renderPregnancySection(preset) {
+    const settings = getSettings();
+    $('#lw_content').html(`
+        <h2 class="lw-content-title">Беременность</h2>
+        <div class="lw-cycle-grid" id="lw_pregnancy_grid"></div>
+    `);
+    const $grid = $('#lw_pregnancy_grid');
+    $grid.append(renderPregnancyCard('user', preset, settings));
+    $grid.append(renderPregnancyCard('char', preset, settings));
+    bindPregnancyEvents();
+}
+
+function renderPregnancyCard(who, preset, settings) {
+    const data = getCharacterData(who);
+    const name = carrierDisplayName(who);
+    const totalWeeks = getTotalWeeks(preset, settings.pregnancyDuration);
+
+    let bodyHtml;
+    if (!data.canCarry) {
+        bodyHtml = `<p class="lw-dim-note">Не отмечен(а) как носитель в этой истории.</p>`;
+    } else if (!data.pregnancy?.isPregnant) {
+        bodyHtml = `<button type="button" class="lw-btn lw-start-pregnancy" data-who="${who}">Начать беременность (тест)</button>`;
+    } else {
+        bodyHtml = renderPregnancyProgress(data.pregnancy, preset, totalWeeks, who);
+    }
+
+    return `
+        <div class="lw-card lw-pregnancy-card" style="--lw-card-accent: ${preset.color}">
+            <div class="lw-card-label">${name}</div>
+            <label class="lw-checkbox-row">
+                <input type="checkbox" class="lw-can-carry" data-who="${who}" ${data.canCarry ? 'checked' : ''}>
+                Может забеременеть в этой истории
+            </label>
+            <div class="lw-pregnancy-body">${bodyHtml}</div>
+        </div>
+    `;
+}
+
+function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
+    let barsHtml;
+    if (preset.gestationType === 'staged') {
+        const s1 = preset.stages.first, s2 = preset.stages.second;
+        const w1 = Math.min(pregnancy.weeks, s1.weeks);
+        const w2 = Math.max(0, Math.min(pregnancy.weeks - s1.weeks, s2.weeks));
+        barsHtml = `
+            <div class="lw-stage-bar">
+                <div class="lw-stage-label">${s1.label} <span class="lw-dim">${w1}/${s1.weeks} нед.</span></div>
+                <div class="lw-bar"><div class="lw-bar-fill" style="width:${(w1 / s1.weeks) * 100}%"></div></div>
+            </div>
+            <div class="lw-stage-bar ${pregnancy.stage === 'clutch' ? '' : 'lw-stage-pending'}">
+                <div class="lw-stage-label">${s2.label} <span class="lw-dim">${w2}/${s2.weeks} нед.</span></div>
+                <div class="lw-bar"><div class="lw-bar-fill" style="width:${(w2 / s2.weeks) * 100}%"></div></div>
+            </div>
+        `;
+    } else {
+        const trimester = pregnancy.weeks < 13 ? 1 : pregnancy.weeks < 27 ? 2 : 3;
+        barsHtml = `
+            <div class="lw-stage-bar">
+                <div class="lw-stage-label">Неделя ${pregnancy.weeks} из ${totalWeeks} <span class="lw-dim">· ${trimester} триместр</span></div>
+                <div class="lw-bar"><div class="lw-bar-fill" style="width:${(pregnancy.weeks / totalWeeks) * 100}%"></div></div>
+            </div>
+        `;
+    }
+
+    return `
+        ${barsHtml}
+        <div class="lw-day-control">
+            <label>Неделя:</label>
+            <input type="number" class="lw-input lw-weeks-input" data-who="${who}" min="0" max="${totalWeeks}" value="${pregnancy.weeks}">
+        </div>
+        <div class="lw-day-control">
+            <label>${preset.offspringLabel}:</label>
+            <input type="number" class="lw-input lw-offspring-input" data-who="${who}" min="1" value="${pregnancy.offspringCount}">
+        </div>
+        <button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Завершить (сбросить)</button>
+    `;
+}
+
+function bindPregnancyEvents() {
+    $('.lw-can-carry').on('change', function () {
+        const who = $(this).data('who');
+        setCanCarry(who, $(this).is(':checked'));
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-start-pregnancy').on('click', function () {
+        const who = $(this).data('who');
+        startPregnancy(who);
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-end-pregnancy').on('click', function () {
+        const who = $(this).data('who');
+        endPregnancy(who);
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-weeks-input').on('change', function () {
+        const who = $(this).data('who');
+        setPregnancyWeeks(who, $(this).val());
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-offspring-input').on('change', function () {
+        const who = $(this).data('who');
+        setOffspringCount(who, $(this).val());
         saveSettings();
         renderContent();
     });

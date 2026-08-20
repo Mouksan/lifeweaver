@@ -9,7 +9,7 @@
 // перезагрузку.
 
 import { extension_settings } from '../../../extensions.js';
-import { extensionName, defaultSettings, defaultChatData, defaultCharacterData } from './config.js';
+import { extensionName, defaultSettings, defaultChatData, defaultCharacterData, defaultPregnancyData, getPreset, getTotalWeeks } from './config.js';
 
 function cloneDefault(value) {
     return (value && typeof value === 'object') ? structuredClone(value) : value;
@@ -138,4 +138,43 @@ export function carrierDisplayName(who) {
     } catch (e) {
         return who === 'char' ? 'Партнёр' : 'Ты';
     }
+}
+
+// ── Беременность/вынашивание ──
+export function setCanCarry(who, value) {
+    getCharacterData(who).canCarry = !!value;
+}
+
+function activePreset() {
+    return getPreset(getActiveUniverse());
+}
+
+export function startPregnancy(who) {
+    const preset = activePreset();
+    const range = preset.offspringRange || { min: 1, max: 1 };
+    const count = range.min + Math.floor(Math.random() * (range.max - range.min + 1));
+    const character = getCharacterData(who);
+    character.pregnancy = { isPregnant: true, weeks: 0, stage: 'formation', offspringCount: count };
+}
+
+export function endPregnancy(who) {
+    getCharacterData(who).pregnancy = cloneDefault(defaultPregnancyData);
+}
+
+export function setPregnancyWeeks(who, weeks) {
+    const preset = activePreset();
+    const character = getCharacterData(who);
+    if (!character.pregnancy?.isPregnant) return;
+    const total = getTotalWeeks(preset, getSettings().pregnancyDuration);
+    const w = Math.max(0, Math.min(total, parseInt(weeks) || 0));
+    character.pregnancy.weeks = w;
+    if (preset.gestationType === 'staged') {
+        character.pregnancy.stage = w >= preset.stages.first.weeks ? 'clutch' : 'formation';
+    }
+}
+
+export function setOffspringCount(who, count) {
+    const character = getCharacterData(who);
+    if (!character.pregnancy) return;
+    character.pregnancy.offspringCount = Math.max(1, parseInt(count) || 1);
 }

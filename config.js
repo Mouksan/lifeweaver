@@ -4,7 +4,8 @@
 
 export const extensionName = 'third-party/lifeweaver';
 
-// Каждой вселенной — свой акцентный цвет (используется в UI как маркер вкладки).
+// Каждой вселенной — свой акцентный цвет (используется в UI как маркер вкладки),
+// диапазон количества потомства и его название в UI.
 export const UNIVERSE_PRESETS = {
     mpreg: {
         id: 'mpreg',
@@ -13,6 +14,8 @@ export const UNIVERSE_PRESETS = {
         cycleSystem: 'none',
         gestationType: 'live',
         color: '#8a9490',
+        offspringRange: { min: 1, max: 1 },
+        offspringLabel: 'Детей',
     },
     omegaverse: {
         id: 'omegaverse',
@@ -21,6 +24,8 @@ export const UNIVERSE_PRESETS = {
         cycleSystem: 'abo',
         gestationType: 'live',
         color: '#8967b0',
+        offspringRange: { min: 1, max: 1 },
+        offspringLabel: 'Детей',
     },
     dragon: {
         id: 'dragon',
@@ -29,6 +34,8 @@ export const UNIVERSE_PRESETS = {
         cycleSystem: 'abo',
         gestationType: 'staged',
         color: '#c1552f',
+        offspringRange: { min: 1, max: 3 },
+        offspringLabel: 'Яиц',
         stages: {
             first:  { key: 'formation', label: 'Формирование', weeks: 20 },
             second: { key: 'clutch',    label: 'Кладка и инкубация', weeks: 20 },
@@ -41,6 +48,9 @@ export const UNIVERSE_PRESETS = {
         cycleSystem: 'abo',
         gestationType: 'staged',
         color: '#3f9c92',
+        offspringRange: { min: 3, max: 12 },
+        offspringLabel: 'Икринок',
+        // Длительности — плейсхолдер, донастроим числа на Этапе 8 (конструктор).
         stages: {
             first:  { key: 'formation', label: 'Вынашивание', weeks: 20 },
             second: { key: 'clutch',    label: 'Нерест и инкубация', weeks: 20 },
@@ -77,8 +87,17 @@ export function summarizePreset(universeId) {
     return `Цикл: ${cycle} · Вынашивание: ${gestation}`;
 }
 
+// Суммарная длительность вынашивания в неделях: у staged — сумма двух фаз,
+// у live — общая настройка pregnancyDuration (дефолт 40).
+export function getTotalWeeks(preset, pregnancyDuration) {
+    if (preset.gestationType === 'staged') {
+        return preset.stages.first.weeks + preset.stages.second.weeks;
+    }
+    return Math.max(1, parseInt(pregnancyDuration) || 40);
+}
+
 // Разделы левого сайдбара. Контент появится постепенно (Этапы 4–8);
-// пока каждый раздел, кроме "Обзор", — заглушка.
+// пока каждый раздел, кроме "Обзор"/"Цикл"/"Беременность", — заглушка.
 export const SECTIONS = [
     { id: 'overview',   label: 'Обзор',            icon: 'fa-house' },
     { id: 'cycle',      label: 'Цикл',              icon: 'fa-moon' },
@@ -98,20 +117,37 @@ export const defaultSettings = {
     heatDuration: 5,
     rutCycleLength: 70,
     rutDuration: 3,
+    // Длительность обычной (live) беременности в неделях — для mpreg/омегаверса.
+    pregnancyDuration: 40,
+};
+
+// Дефолт беременности одного персонажа.
+export const defaultPregnancyData = {
+    isPregnant: false,
+    weeks: 0,
+    stage: 'formation', // используется только при gestationType: 'staged'
+    offspringCount: 1,
 };
 
 // Дефолт для одного персонажа (заполняется лениво под ключами user/char).
 export const defaultCharacterData = {
     designation: 'beta',
     cycleDay: 1,
+    // Явный флаг "может забеременеть" — не выводится из designation/пола,
+    // выставляется руками один раз на чат/карточку.
+    canCarry: false,
+    pregnancy: {
+        isPregnant: false,
+        weeks: 0,
+        stage: 'formation',
+        offspringCount: 1,
+    },
 };
 
 export const defaultChatData = {
     universe: DEFAULT_UNIVERSE,
-    // Роли/цикл по персонажам этого чата. Кто именно может забеременеть —
-    // отдельный явный флаг, приедет на Этапе 5 (не выводится из designation).
     characters: {
-        user: { designation: 'omega', cycleDay: 1 },
-        char: { designation: 'alpha', cycleDay: 1 },
+        user: { designation: 'omega', cycleDay: 1, canCarry: false, pregnancy: { isPregnant: false, weeks: 0, stage: 'formation', offspringCount: 1 } },
+        char: { designation: 'alpha', cycleDay: 1, canCarry: false, pregnancy: { isPregnant: false, weeks: 0, stage: 'formation', offspringCount: 1 } },
     },
 };

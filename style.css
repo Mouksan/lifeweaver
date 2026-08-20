@@ -304,6 +304,69 @@
     font-style: italic;
 }
 
+/* ── Раздел "Цикл" ── */
+.lw-cycle-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+}
+
+.lw-cycle-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.lw-select,
+.lw-input {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--lw-border);
+    color: var(--lw-text);
+    border-radius: 5px;
+    padding: 6px 8px;
+    font-family: var(--lw-font-body);
+    font-size: 0.85rem;
+}
+
+.lw-select:focus-visible,
+.lw-input:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: 1px;
+}
+
+.lw-phase-badge {
+    padding: 6px 10px;
+    border-radius: 5px;
+    font-family: var(--lw-font-mono);
+    font-size: 0.78rem;
+    border: 1px solid var(--lw-border);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--lw-text-dim);
+}
+
+.lw-phase-heat,
+.lw-phase-rut {
+    border-color: var(--lw-card-accent, var(--lw-accent));
+    background: color-mix(in srgb, var(--lw-card-accent, var(--lw-accent)) 18%, transparent);
+    color: var(--lw-text);
+}
+
+.lw-phase-preheat {
+    opacity: 0.9;
+}
+
+.lw-day-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--lw-text-dim);
+}
+
+.lw-day-control .lw-input {
+    width: 64px;
+}
+
 /* ── Заглушка пустого раздела ── */
 .lw-empty {
     display: flex;

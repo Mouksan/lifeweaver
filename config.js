@@ -92,8 +92,26 @@ export const SECTIONS = [
 export const defaultSettings = {
     isEnabled: true,
     chatData: {},
+    // Длины циклов течки/гона — общие на все ABO-вселенные. Разбивка по видам
+    // (у драконов гон может идти иначе, чем у людей) — Этап 8, конструктор.
+    heatCycleLength: 42,
+    heatDuration: 5,
+    rutCycleLength: 70,
+    rutDuration: 3,
+};
+
+// Дефолт для одного персонажа (заполняется лениво под ключами user/char).
+export const defaultCharacterData = {
+    designation: 'beta',
+    cycleDay: 1,
 };
 
 export const defaultChatData = {
     universe: DEFAULT_UNIVERSE,
+    // Роли/цикл по персонажам этого чата. Кто именно может забеременеть —
+    // отдельный явный флаг, приедет на Этапе 5 (не выводится из designation).
+    characters: {
+        user: { designation: 'omega', cycleDay: 1 },
+        char: { designation: 'alpha', cycleDay: 1 },
+    },
 };

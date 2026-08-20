@@ -9,7 +9,7 @@
 // перезагрузку.
 
 import { extension_settings } from '../../../extensions.js';
-import { extensionName, defaultSettings, defaultChatData } from './config.js';
+import { extensionName, defaultSettings, defaultChatData, defaultCharacterData } from './config.js';
 
 function cloneDefault(value) {
     return (value && typeof value === 'object') ? structuredClone(value) : value;
@@ -94,4 +94,48 @@ export function getActiveUniverse() {
 
 export function setActiveUniverse(universeId) {
     getChatData().universe = universeId;
+}
+
+// ── Данные персонажа (who: 'user' | 'char') ──
+export function getCharacterData(who) {
+    const chat = getChatData();
+    if (!chat.characters) chat.characters = {};
+    if (!chat.characters[who]) {
+        chat.characters[who] = cloneDefault(
+            who === 'char' ? { designation: 'alpha', cycleDay: 1 } : { designation: 'omega', cycleDay: 1 },
+        );
+    }
+    ensureDefaults(chat.characters[who], defaultCharacterData);
+    return chat.characters[who];
+}
+
+export function setDesignation(who, designation) {
+    getCharacterData(who).designation = designation;
+}
+
+export function getCycleSettings() {
+    const s = getSettings();
+    return {
+        heatCycleLength: Math.max(7, parseInt(s.heatCycleLength) || 42),
+        heatDuration: Math.max(1, parseInt(s.heatDuration) || 5),
+        rutCycleLength: Math.max(7, parseInt(s.rutCycleLength) || 70),
+        rutDuration: Math.max(1, parseInt(s.rutDuration) || 3),
+    };
+}
+
+export function setCycleDay(who, day) {
+    const cfg = getCycleSettings();
+    const character = getCharacterData(who);
+    const maxDay = character.designation === 'alpha' ? cfg.rutCycleLength : cfg.heatCycleLength;
+    character.cycleDay = Math.max(1, Math.min(maxDay, parseInt(day) || 1));
+}
+
+// Отображаемое имя персонажа для UI
+export function carrierDisplayName(who) {
+    try {
+        const ctx = SillyTavern.getContext();
+        return who === 'char' ? (ctx.name2 || 'Партнёр') : (ctx.name1 || 'Ты');
+    } catch (e) {
+        return who === 'char' ? 'Партнёр' : 'Ты';
+    }
 }

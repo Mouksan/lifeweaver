@@ -22,13 +22,16 @@
    ═══════════════════════════════════════════════════════════════ */
 
 #lw_modal_overlay {
-    --lw-bg: #0b1210;
-    --lw-panel: #172522;
-    --lw-panel-alt: #1c2b28;
-    --lw-border: #2c3e3a;
-    --lw-text: #ece3d0;
-    --lw-text-dim: #9fa89f;
-    --lw-accent: #c9a659;
+    /* Берём цвета темы SillyTavern напрямую — расширение "стеклянное" и подстраивается
+       под то, что пользователь уже настроил себе в Таверне. Фолбэки — прежняя
+       палитра "полевого дневника", на случай если переменных темы нет. */
+    --lw-panel: color-mix(in srgb, var(--SmartThemeBlurTintColor, #172522) 85%, transparent);
+    --lw-panel-alt: color-mix(in srgb, var(--SmartThemeChatTintColor, #1c2b28) 75%, transparent);
+    --lw-border: color-mix(in srgb, var(--SmartThemeBodyColor, #9fa89f) 22%, transparent);
+    --lw-text: var(--SmartThemeBodyColor, #ece3d0);
+    --lw-text-dim: color-mix(in srgb, var(--SmartThemeBodyColor, #9fa89f) 62%, transparent);
+    --lw-accent: var(--SmartThemeQuoteColor, #c9a659);
+    --lw-blur: var(--SmartThemeBlurStrength, 12px);
 
     --lw-font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
     --lw-font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -36,7 +39,7 @@
 
     position: fixed;
     inset: 0;
-    background: rgba(4, 7, 6, 0.72);
+    background: rgba(4, 7, 6, 0.55);
     backdrop-filter: blur(3px);
     display: none;
     align-items: center;
@@ -50,9 +53,11 @@
 }
 
 .lw-panel {
-    width: min(920px, 94vw);
-    height: min(680px, 90vh);
+    width: min(1400px, 95vw);
+    height: min(880px, 92vh);
     background: var(--lw-panel);
+    backdrop-filter: blur(var(--lw-blur));
+    -webkit-backdrop-filter: blur(var(--lw-blur));
     color: var(--lw-text);
     border: 1px solid var(--lw-border);
     border-radius: 10px;
@@ -77,13 +82,6 @@
     font-weight: 600;
     margin: 0;
     letter-spacing: 0.02em;
-}
-
-.lw-subtitle {
-    margin: 4px 0 0;
-    font-size: 0.8rem;
-    color: var(--lw-text-dim);
-    letter-spacing: 0.03em;
 }
 
 .lw-close {

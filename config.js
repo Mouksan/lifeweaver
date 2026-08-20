@@ -36,7 +36,7 @@ export const UNIVERSE_PRESETS = {
     },
     merfolk: {
         id: 'merfolk',
-        label: 'Рыбки',
+        label: 'Мерфолк',
         sublabel: 'Нерест',
         cycleSystem: 'abo',
         gestationType: 'staged',

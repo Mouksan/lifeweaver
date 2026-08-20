@@ -87,11 +87,11 @@ export function getChatData() {
     return s.chatData[chatId];
 }
 
-// ── Тестовая заметка на чат (временно, уберём когда появится реальный контент) ──
-export function getChatNote() {
-    return getChatData().note || '';
+// ── Активная вселенная — per-chat (один бот может трекаться по-разному в разных чатах) ──
+export function getActiveUniverse() {
+    return getChatData().universe || 'mpreg';
 }
 
-export function setChatNote(value) {
-    getChatData().note = value;
+export function setActiveUniverse(universeId) {
+    getChatData().universe = universeId;
 }

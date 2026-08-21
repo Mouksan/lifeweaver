@@ -2,29 +2,149 @@
 // AUTOMATION — подписка на события ST + применение результатов скана
 // ═══════════════════════════════════════════
 //
-// Аналог message-handler.js у вдохновителя, упрощённый: без истории
-// снапшотов на откат при удалении сообщения, без дедупа по хэшу, без учёта
-// свайпов/регенерации отдельно. Это тот самый "ещё много правок потом" —
-// сейчас важно, чтобы мозги (детект + применение) работали правильно.
+// Логика портирована с message-handler.js вдохновителя. Не изобретаем своё:
+// у них это уже прошло проверку боем. Взято один в один по смыслу:
 //
-// Позаимствовано у вдохновителя один в один (готовое решение, не изобретаю):
-// stripThink (думалка не должна триггерить сканер), сохранение исходника
-// в msg.extra перед вырезанием тегов (пригодится для будущего пересканирования
-// при свайпах), явная подчистка ОТРИСОВАННОГО DOM отдельным проходом — на
-// HTML-комментарии-невидимки полагаться недостаточно, вдохновитель тоже
-// подчищает .mes_text явно.
+//  • ДЕДУП ПО ХЭШУ: та же позиция в чате + тот же текст → скип. Иначе один
+//    ответ обрабатывается дважды (MESSAGE_RECEIVED + дорисовка/стриминг),
+//    и DAYS_PASSED накручивается по второму разу.
+//  • ИСТОРИЯ СНАПШОТОВ: перед обработкой каждого сообщения сохраняем полное
+//    состояние чата под номером позиции. Удалили сообщение → откатываемся
+//    к снапшоту предыдущей позиции.
+//  • РЕГЕН/СВАЙП: перед обработкой держим снапшот "до". Свайп на другой
+//    вариант ответа = сначала восстановить состояние до старого варианта,
+//    потом применить теги нового. Иначе дни/события суммируются с обоих.
+//  • stripThink перед сканом (репетиция тега в думалке ≠ событие).
+//  • Сохранение исходника в msg.extra перед вырезанием тегов.
+//  • Явная подчистка отрисованного DOM.
+//
+// Отличие только одно, наше: события двухстадийного вынашивания (LAY_CLUTCH)
+// и универсальные теги вместо привязанных к одной вселенной.
 
 import { eventSource, event_types, saveSettingsDebounced } from '../../../../script.js';
 import {
-    getSettings, advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
+    getSettings, getChatData, getCurrentChatId,
+    advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
     applyPregnancyLoss, setPregnancyKnown,
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
 
-// Применяет разобранный результат скана к состоянию. Порядок значим:
-// потеря беременности — раньше остальных событий этого персонажа (взаимоисключающе
-// с кладкой/родами), дальше зачатие → кладка → роды → знание о беременности.
+const HISTORY_CAP = 25;
+
+// ── Состояние обработки (живёт в памяти, не в настройках) ──
+let _isRegeneration = false;
+let _preRegenSnapshot = null;
+let _snapshotChatId = null;
+let _lastScannedPosition = null;
+let _lastScannedHash = null;
+let _lastScannedHashStripped = null;
+
+// Быстрый хэш текста — для дедупа сканов
+function simpleHash(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+        h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+    }
+    return h;
+}
+
+function getStContext() {
+    return typeof SillyTavern?.getContext === 'function' ? SillyTavern.getContext() : null;
+}
+
+// Снапшот per-chat состояния без самой истории (иначе она вложится в себя)
+function snapshotOfChatData() {
+    const chat = getChatData();
+    const copy = structuredClone(chat);
+    delete copy._history;
+    return copy;
+}
+
+export function pushStateHistory(pos) {
+    try {
+        const chat = getChatData();
+        if (!Array.isArray(chat._history)) chat._history = [];
+        const snap = snapshotOfChatData();
+        const existing = chat._history.find(h => h.pos === pos);
+        if (existing) {
+            existing.state = snap;
+        } else {
+            chat._history.push({ pos, state: snap });
+            chat._history.sort((a, b) => a.pos - b.pos);
+        }
+        if (chat._history.length > HISTORY_CAP) {
+            chat._history.splice(0, chat._history.length - HISTORY_CAP);
+        }
+    } catch (e) { /* ignore */ }
+}
+
+// Откат к моменту, когда в чате было newLen сообщений.
+export function rollbackToPosition(newLen) {
+    try {
+        const chat = getChatData();
+        if (!Array.isArray(chat._history) || chat._history.length === 0) return false;
+
+        const kept = chat._history.filter(h => h.pos <= newLen);
+        const target = kept.length > 0 ? kept[kept.length - 1] : null;
+        if (!target) {
+            chat._history = kept;
+            return false;
+        }
+
+        // Полная замена состояния (с удалением ключей, появившихся позже)
+        for (const k of Object.keys(chat)) delete chat[k];
+        Object.assign(chat, structuredClone(target.state));
+        chat._history = kept;
+
+        _preRegenSnapshot = snapshotOfChatData();
+        _snapshotChatId = getCurrentChatId();
+        // Позиция скана протухла — следующий ответ должен обработаться заново
+        _lastScannedPosition = null;
+        _lastScannedHash = null;
+        _lastScannedHashStripped = null;
+
+        saveSettingsDebounced();
+        notifyStateChanged();
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+export function markRegeneration() {
+    _isRegeneration = true;
+}
+
+// Вызывать после любого РУЧНОГО изменения состояния из интерфейса — иначе
+// свайп/реген откатит ручные правки к состоянию до последнего скана.
+export function refreshRegenSnapshot() {
+    try {
+        _preRegenSnapshot = snapshotOfChatData();
+        _snapshotChatId = getCurrentChatId();
+        const ctx = getStContext();
+        const len = ctx?.chat?.length ?? 0;
+        if (len > 0) pushStateHistory(len);
+    } catch (e) { /* ignore */ }
+}
+
+export function clearRegenState() {
+    _isRegeneration = false;
+    _preRegenSnapshot = null;
+    _snapshotChatId = null;
+    _lastScannedPosition = null;
+    _lastScannedHash = null;
+    _lastScannedHashStripped = null;
+}
+
+function notifyStateChanged() {
+    try {
+        document.dispatchEvent(new CustomEvent('lifeweaver:state-changed'));
+    } catch (e) { /* ignore */ }
+}
+
+// Применяет разобранный результат скана. Порядок значим: потеря беременности —
+// раньше остальных событий этого персонажа (взаимоисключающе с кладкой/родами).
 function applyScanResult(result) {
     if (!result) return;
 
@@ -46,13 +166,7 @@ function applyScanResult(result) {
     }
 }
 
-function getStContext() {
-    return typeof SillyTavern?.getContext === 'function' ? SillyTavern.getContext() : null;
-}
-
-// Убирает наши теги из msg.mes после скана — чтобы они не тянулись в контекст
-// модели на следующих ответах. Исходник сохраняется в msg.extra на случай,
-// если понадобится пересканировать (свайпы/реген — следующий заход).
+// Убирает наши теги из msg.mes после скана, сохранив исходник в msg.extra.
 function cleanMessageTags(msg) {
     if (!msg || !hasOurTags(msg.mes)) return;
     const raw = msg.mes;
@@ -66,10 +180,13 @@ function cleanMessageTags(msg) {
     }
 }
 
-// Явная подчистка ОТРИСОВАННОГО текста — belt-and-suspenders поверх чистки
-// msg.mes. HTML-комментарии браузер и так не показывает, но полагаться
-// только на это не будем, раз у вдохновителя есть готовое решение именно
-// на случай, если рендерер ST обойдётся с сырым текстом иначе.
+// Текст для скана: сначала сохранённый исходник (теги уже вырезаны из msg.mes),
+// иначе видимый текст.
+function rawTextOf(msg) {
+    if (!msg) return '';
+    return (msg.extra && msg.extra.lifeweaverRaw) || msg.mes || '';
+}
+
 function stripTagsFromDom(index) {
     try {
         const el = document.querySelector(`.mes[mesid="${index}"] .mes_text`);
@@ -79,49 +196,126 @@ function stripTagsFromDom(index) {
     } catch (e) { /* ignore */ }
 }
 
-function handleMessageAt(index) {
+function runScan() {
     try {
         const settings = getSettings();
         if (!settings.isEnabled) return;
 
         const ctx = getStContext();
         if (!ctx?.chat?.length) return;
-        let idx = index;
-        if (typeof idx !== 'number' || idx < 0 || idx >= ctx.chat.length) idx = ctx.chat.length - 1;
-        const msg = ctx.chat[idx];
-        if (!msg || !msg.mes) return;
 
-        // Сканируем БЕЗ думалки — иначе "репетиция" тега в <think> триггерит
-        // событие, которого модель в итоге не подтвердила в самом ответе.
-        const result = scanMessage(stripThink(msg.mes));
+        const idx = ctx.chat.length - 1;
+        const lastMessage = ctx.chat[idx];
+        if (!lastMessage || !lastMessage.mes) return;
+
+        // Позиция = длина чата: реген/свайп заменяет сообщение на той же позиции
+        const positionId = ctx.chat.length;
+        // Реген/свайп всегда заканчивается ботским сообщением: на юзерском флаг протух
+        const isRegen = _isRegeneration && !lastMessage.is_user;
+        _isRegeneration = false;
+
+        const text = stripThink(rawTextOf(lastMessage));
+        const textHash = simpleHash(text);
+
+        // ДЕДУП: та же позиция И тот же текст (или его версия с вырезанными
+        // тегами) → скип. Именно это спасает от накрутки дней при повторной
+        // обработке одного и того же ответа.
+        if (!isRegen && _lastScannedPosition === positionId &&
+            (textHash === _lastScannedHash || textHash === _lastScannedHashStripped)) {
+            return;
+        }
+
+        const chatIdNow = getCurrentChatId();
+
+        // РЕГЕН/СВАЙП: восстанавливаем состояние ДО старого варианта ответа,
+        // прежде чем применять теги нового. Только если снапшот от этого же чата.
+        if (isRegen && _preRegenSnapshot) {
+            if (_snapshotChatId === chatIdNow) {
+                const chat = getChatData();
+                for (const k of Object.keys(chat)) delete chat[k];
+                Object.assign(chat, structuredClone(_preRegenSnapshot));
+                saveSettingsDebounced();
+            }
+            _preRegenSnapshot = null;
+        }
+
+        // Снапшот ДО обработки — для будущего регена
+        _preRegenSnapshot = snapshotOfChatData();
+        _snapshotChatId = chatIdNow;
+
+        // Отмечаем скан сразу
+        _lastScannedPosition = positionId;
+        _lastScannedHash = textHash;
+        _lastScannedHashStripped = simpleHash(stripOurTags(text));
+
+        const result = scanMessage(text);
         if (result) {
             applyScanResult(result);
             updatePromptInjection();
-            // Даём интерфейсу знать, что состояние изменилось — если панель
-            // открыта, она перерисуется сама, без переключения вкладок.
-            try {
-                document.dispatchEvent(new CustomEvent('lifeweaver:state-changed'));
-            } catch (e) { /* ignore */ }
+            notifyStateChanged();
         }
-        cleanMessageTags(msg);
+
+        // История состояний ПОСЛЕ обработки — для отката при удалении
+        pushStateHistory(positionId);
+
+        cleanMessageTags(lastMessage);
         saveSettingsDebounced();
         try { ctx.saveChat?.(); } catch (e) { /* ignore */ }
         setTimeout(() => stripTagsFromDom(idx), 250);
     } catch (e) {
-        console.error('[Lifeweaver] handleMessageAt error:', e);
+        console.error('[Lifeweaver] runScan error:', e);
     }
 }
 
 export function initAutomation() {
     try {
-        // Основной путь — ответ бота. Плюс сканируем и то, что отправляет сам
-        // игрок (можно вручную вписать тег текстом, чтобы проверить механику
-        // без ожидания подходящей генерации от модели).
         if (event_types.MESSAGE_RECEIVED) {
-            eventSource.on(event_types.MESSAGE_RECEIVED, (index) => handleMessageAt(index));
+            eventSource.on(event_types.MESSAGE_RECEIVED, (i, type) => {
+                if (type === 'quiet') return;
+                runScan();
+            });
         }
         if (event_types.MESSAGE_SENT) {
-            eventSource.on(event_types.MESSAGE_SENT, (index) => handleMessageAt(index));
+            eventSource.on(event_types.MESSAGE_SENT, (i, type) => {
+                if (type === 'quiet') return;
+                runScan();
+            });
+        }
+
+        // Свайп — помечаем реген, чтобы состояние откатилось к "до" старого варианта
+        if (event_types.MESSAGE_SWIPED) {
+            eventSource.on(event_types.MESSAGE_SWIPED, () => markRegeneration());
+        }
+        // GENERATION_STARTED стреляет ДО добавления сообщения — реген определяем
+        // по явному типу генерации из первого аргумента.
+        if (event_types.GENERATION_STARTED) {
+            eventSource.on(event_types.GENERATION_STARTED, (genType, params, dryRun) => {
+                if (dryRun) return;
+                if (genType === 'regenerate' || genType === 'swipe') markRegeneration();
+            });
+        }
+        // GENERATION_ENDED — хук для стриминговых свайпов/continue
+        if (event_types.GENERATION_ENDED) {
+            eventSource.on(event_types.GENERATION_ENDED, () => runScan());
+        }
+
+        // Удаление сообщения — откат к снапшоту предыдущей позиции.
+        // ST эмитит MESSAGE_DELETED с НОВОЙ длиной чата (после удаления).
+        if (event_types.MESSAGE_DELETED) {
+            eventSource.on(event_types.MESSAGE_DELETED, (newLength) => {
+                const ctx = getStContext();
+                const len = typeof newLength === 'number' ? newLength : (ctx?.chat?.length ?? 0);
+                rollbackToPosition(len);
+                updatePromptInjection();
+            });
+        }
+
+        // Редактирование сообщения — текст изменился, дедуп должен протухнуть
+        if (event_types.MESSAGE_EDITED) {
+            eventSource.on(event_types.MESSAGE_EDITED, () => {
+                _lastScannedHash = null;
+                _lastScannedHashStripped = null;
+            });
         }
     } catch (e) {
         console.error('[Lifeweaver] initAutomation error:', e);

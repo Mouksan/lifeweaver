@@ -356,6 +356,14 @@ export function getRpDay() {
     return getChatData().rpDay || 0;
 }
 
+// Ручная коррекция счётчика дней — на случай, если автоматика накрутила
+// лишнего (старые чаты до дедупа, эксперименты со скипами).
+export function setRpDay(value) {
+    const chat = getChatData();
+    chat.rpDay = Math.max(0, parseInt(value) || 0);
+    return chat.rpDay;
+}
+
 export function setPregnancyKnown(who, value) {
     const character = getCharacterData(who);
     if (character.pregnancy) character.pregnancy.pregnancyKnown = !!value;

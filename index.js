@@ -10,10 +10,10 @@ import {
     advanceToClutch, currentStageMaxWeeks,
     completeBirth, getChildren, getGrownChildren, updateChildField, archiveChild, deleteChild, restoreChild,
     setContraception, setShowNotifications, setHiddenPregnancy, setNumericSetting,
-    getCustomPresetDraft, saveCustomPreset, disableCustomPreset, getRpDay,
+    getCustomPresetDraft, saveCustomPreset, disableCustomPreset, getRpDay, setRpDay,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
-import { initAutomation } from './automation.js';
+import { initAutomation, refreshRegenSnapshot, clearRegenState } from './automation.js';
 import { updatePromptInjection } from './prompts.js';
 
 const extensionFolderPath = `scripts/extensions/${extensionName}`;
@@ -159,11 +159,20 @@ function renderOverviewSection(preset) {
         </div>
         <div class="lw-card">
             <div class="lw-card-label">Автоматика</div>
-            <div class="lw-card-value">День истории: ${getRpDay()}</div>
-            <div class="lw-card-sub">Двигается тегом <code>DAYS_PASSED</code> от модели — см. раздел «Настройки» → включено ли расширение.</div>
+            <div class="lw-day-control">
+                <label>День истории:</label>
+                <input type="number" class="lw-input" id="lw_rpday_input" min="0" value="${getRpDay()}">
+            </div>
+            <div class="lw-card-sub">Двигается тегом <code>DAYS_PASSED</code> от модели. Можно поправить руками, если накрутилось лишнего.</div>
         </div>
         <p class="lw-placeholder-note">Остальные карточки обзора (здоровье, цикл, беременность одной строкой) соберутся по мере того, как наполнятся сами разделы.</p>
     `);
+
+    $('#lw_rpday_input').on('change', function () {
+        const applied = setRpDay($(this).val());
+        $(this).val(applied);
+        saveSettings();
+    });
 }
 
 // ─── Раздел "Цикл" ───
@@ -846,6 +855,9 @@ function bindSettingsUI() {
         const context = SillyTavern.getContext();
         context.eventSource?.on(context.eventTypes?.CHAT_CHANGED, () => {
             resetChatIdCache();
+            // Снапшоты и позиции скана из прошлого чата не должны пережить переход,
+            // иначе состояние утекает между чатами.
+            clearRegenState();
             updatePromptInjection();
             if ($('#lw_modal_overlay').hasClass('lw-open')) {
                 renderUniverseTabs();
@@ -872,6 +884,11 @@ function saveSettings() {
     } catch (e) {
         console.warn('[Lifeweaver] Не удалось обновить промпт:', e);
     }
+    // Фиксируем ручную правку в снапшоте — иначе следующий свайп/реген
+    // откатит её к состоянию до последнего скана ("поставил, отправил, сбросилось").
+    try {
+        refreshRegenSnapshot();
+    } catch (e) { /* ignore */ }
 }
 
 jQuery(async () => {

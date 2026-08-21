@@ -67,6 +67,32 @@ export function hasOurTags(text) {
     return extractTagComments(text).length > 0;
 }
 
+// Вырезает содержимое think/reasoning-блоков ПЕРЕД сканом — портировано у
+// вдохновителя почти дословно. Модели-ризонеры иногда "репетируют" тег в
+// думалке, не решаясь на него в самом ответе; без этой чистки сканер видел
+// бы репетицию как настоящее срабатывание.
+//  • Закрытый <think>...</think> — точно мысли, вырезается целиком.
+//  • Незакрытый <think> в САМОМ НАЧАЛЕ сообщения (префилл-обёртка вокруг
+//    всего ответа) — маркер убираем, содержимое СКАНИРУЕТСЯ (там могут быть
+//    настоящие теги, вынесенные автопрефиллом за пределы think).
+//  • Незакрытый <think> в середине (оборванная генерация) — режем до конца.
+export function stripThink(text) {
+    if (!text) return '';
+    let res = String(text);
+    res = res.replace(/<(think|thinking|reasoning|analysis|reflection)[^>]*>[\s\S]*?<\/\1>/gi, '');
+    const unclosed = res.match(/<(think|thinking|reasoning)[^>]*>/i);
+    if (unclosed) {
+        const isPrefillWrapper = res.slice(0, unclosed.index).trim() === '';
+        const inner = res.slice(unclosed.index + unclosed[0].length);
+        if (isPrefillWrapper && /<!--\s*\[/.test(inner)) {
+            res = res.slice(0, unclosed.index) + inner;
+        } else {
+            res = res.slice(0, unclosed.index);
+        }
+    }
+    return res;
+}
+
 // Похоже ли на реальное семяизвержение ВНУТРЬ — как у вдохновителя. Модель
 // иногда вешает тег по инерции (сцена с игрушкой, чужой секс, тег просто
 // мелькал в контексте) — слов "секс"/"член" недостаточно, они есть в любой сцене.

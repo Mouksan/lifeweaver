@@ -2,17 +2,24 @@
 // AUTOMATION — подписка на события ST + применение результатов скана
 // ═══════════════════════════════════════════
 //
-// Аналог message-handler.js у вдохновителя, сильно упрощённый: без истории
+// Аналог message-handler.js у вдохновителя, упрощённый: без истории
 // снапшотов на откат при удалении сообщения, без дедупа по хэшу, без учёта
 // свайпов/регенерации отдельно. Это тот самый "ещё много правок потом" —
 // сейчас важно, чтобы мозги (детект + применение) работали правильно.
+//
+// Позаимствовано у вдохновителя один в один (готовое решение, не изобретаю):
+// stripThink (думалка не должна триггерить сканер), сохранение исходника
+// в msg.extra перед вырезанием тегов (пригодится для будущего пересканирования
+// при свайпах), явная подчистка ОТРИСОВАННОГО DOM отдельным проходом — на
+// HTML-комментарии-невидимки полагаться недостаточно, вдохновитель тоже
+// подчищает .mes_text явно.
 
 import { eventSource, event_types, saveSettingsDebounced } from '../../../../script.js';
 import {
     getSettings, advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
     applyPregnancyLoss, setPregnancyKnown,
 } from './state.js';
-import { scanMessage, stripOurTags, hasOurTags } from './scanner.js';
+import { scanMessage, stripOurTags, hasOurTags, stripThink } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
 
 // Применяет разобранный результат скана к состоянию. Порядок значим:
@@ -43,17 +50,33 @@ function getStContext() {
     return typeof SillyTavern?.getContext === 'function' ? SillyTavern.getContext() : null;
 }
 
-// Убирает наши теги из текста сообщения после скана — чтобы они не тянулись
-// в контекст модели на следующих ответах (модель имеет свойство копировать
-// старые теги по инерции, если видит их в истории).
+// Убирает наши теги из msg.mes после скана — чтобы они не тянулись в контекст
+// модели на следующих ответах. Исходник сохраняется в msg.extra на случай,
+// если понадобится пересканировать (свайпы/реген — следующий заход).
 function cleanMessageTags(msg) {
     if (!msg || !hasOurTags(msg.mes)) return;
-    const clean = stripOurTags(msg.mes).replace(/\n{3,}/g, '\n\n').trimEnd();
-    if (clean === msg.mes) return;
+    const raw = msg.mes;
+    const clean = stripOurTags(raw).replace(/\n{3,}/g, '\n\n').trimEnd();
+    if (clean === raw) return;
+    msg.extra = msg.extra || {};
+    msg.extra.lifeweaverRaw = raw;
     msg.mes = clean;
     if (Array.isArray(msg.swipes) && typeof msg.swipe_id === 'number' && msg.swipes[msg.swipe_id] !== undefined) {
         msg.swipes[msg.swipe_id] = clean;
     }
+}
+
+// Явная подчистка ОТРИСОВАННОГО текста — belt-and-suspenders поверх чистки
+// msg.mes. HTML-комментарии браузер и так не показывает, но полагаться
+// только на это не будем, раз у вдохновителя есть готовое решение именно
+// на случай, если рендерер ST обойдётся с сырым текстом иначе.
+function stripTagsFromDom(index) {
+    try {
+        const el = document.querySelector(`.mes[mesid="${index}"] .mes_text`);
+        if (el && hasOurTags(el.innerHTML)) {
+            el.innerHTML = stripOurTags(el.innerHTML);
+        }
+    } catch (e) { /* ignore */ }
 }
 
 function handleMessageAt(index) {
@@ -68,7 +91,9 @@ function handleMessageAt(index) {
         const msg = ctx.chat[idx];
         if (!msg || !msg.mes) return;
 
-        const result = scanMessage(msg.mes);
+        // Сканируем БЕЗ думалки — иначе "репетиция" тега в <think> триггерит
+        // событие, которого модель в итоге не подтвердила в самом ответе.
+        const result = scanMessage(stripThink(msg.mes));
         if (result) {
             applyScanResult(result);
             updatePromptInjection();
@@ -76,6 +101,7 @@ function handleMessageAt(index) {
         cleanMessageTags(msg);
         saveSettingsDebounced();
         try { ctx.saveChat?.(); } catch (e) { /* ignore */ }
+        setTimeout(() => stripTagsFromDom(idx), 250);
     } catch (e) {
         console.error('[Lifeweaver] handleMessageAt error:', e);
     }

@@ -2,13 +2,14 @@
 // LIFEWEAVER — точка входа
 // ═══════════════════════════════════════════
 
-import { extensionName, UNIVERSE_PRESETS, UNIVERSE_ORDER, SECTIONS, summarizePreset, getTotalWeeks } from './config.js';
+import { extensionName, UNIVERSE_PRESETS, UNIVERSE_ORDER, SECTIONS, summarizePreset, getTotalWeeks, CONTRACEPTION_TYPES } from './config.js';
 import {
     getSettings, getActiveUniverse, setActiveUniverse, resetChatIdCache,
     getCharacterData, setDesignation, setCycleDay, getCycleSettings, carrierDisplayName,
     setCanCarry, startPregnancy, endPregnancy, setPregnancyWeeks, setOffspringCount,
     advanceToClutch, currentStageMaxWeeks,
     completeBirth, getChildren, getGrownChildren, updateChildField, archiveChild, deleteChild, restoreChild,
+    setContraception, setShowNotifications, setHiddenPregnancy, setNumericSetting,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 
@@ -101,6 +102,10 @@ function renderContent() {
     }
     if (activeSection === 'tree') {
         renderTreeSection(preset);
+        return;
+    }
+    if (activeSection === 'settings') {
+        renderSettingsSection();
         return;
     }
 
@@ -523,6 +528,104 @@ function renderTreeSection(preset) {
             </div>
         </div>
     `);
+}
+
+// ─── Раздел "Настройки" ───
+function renderContraceptionCard(who) {
+    const name = carrierDisplayName(who);
+    const current = getCharacterData(who).contraception || 'none';
+    const options = Object.values(CONTRACEPTION_TYPES).map(c => `
+        <option value="${c.id}" ${c.id === current ? 'selected' : ''}>${c.label}${c.chance ? ` (${c.chance}%)` : ''}</option>
+    `).join('');
+    return `
+        <div class="lw-card">
+            <div class="lw-card-label">${name}</div>
+            <select class="lw-select lw-contraception-select" data-who="${who}">${options}</select>
+        </div>
+    `;
+}
+
+function renderSettingsSection() {
+    const s = getSettings();
+
+    $('#lw_content').html(`
+        <h2 class="lw-content-title">Настройки</h2>
+
+        <div class="lw-settings-group">
+            <h3 class="lw-content-subtitle">Контрацепция</h3>
+            <div class="lw-cycle-grid">
+                ${renderContraceptionCard('user')}
+                ${renderContraceptionCard('char')}
+            </div>
+            <p class="lw-placeholder-note">Пока просто хранится — сама механика зачатия (шанс на успех/провал защиты) появится на Этапе 9.</p>
+        </div>
+
+        <div class="lw-settings-group">
+            <h3 class="lw-content-subtitle">Общее</h3>
+            <label class="lw-checkbox-row">
+                <input type="checkbox" id="lw_setting_notifications" ${s.showNotifications ? 'checked' : ''}>
+                Показывать уведомления о событиях
+            </label>
+            <label class="lw-checkbox-row">
+                <input type="checkbox" id="lw_setting_hidden_pregnancy" ${s.hiddenPregnancy ? 'checked' : ''}>
+                Скрытая беременность — герой не знает о зачатии, пока не заметит сам
+            </label>
+        </div>
+
+        <div class="lw-settings-group">
+            <h3 class="lw-content-subtitle">Длительности циклов и беременности</h3>
+            <div class="lw-settings-numeric-grid">
+                <label>Длина цикла течки (дн.)
+                    <input type="number" class="lw-input" id="lw_setting_heatCycleLength" min="7" value="${s.heatCycleLength}">
+                </label>
+                <label>Длительность течки (дн.)
+                    <input type="number" class="lw-input" id="lw_setting_heatDuration" min="1" value="${s.heatDuration}">
+                </label>
+                <label>Длина цикла гона (дн.)
+                    <input type="number" class="lw-input" id="lw_setting_rutCycleLength" min="7" value="${s.rutCycleLength}">
+                </label>
+                <label>Длительность гона (дн.)
+                    <input type="number" class="lw-input" id="lw_setting_rutDuration" min="1" value="${s.rutDuration}">
+                </label>
+                <label>Обычная беременность (нед.)
+                    <input type="number" class="lw-input" id="lw_setting_pregnancyDuration" min="1" value="${s.pregnancyDuration}">
+                </label>
+            </div>
+            <p class="lw-placeholder-note">Фазы драконов/мерфолка (формирование → кладка/инкубация) настраиваются отдельно, в конструкторе кастомной вселенной.</p>
+        </div>
+    `);
+
+    bindSettingsEvents();
+}
+
+function bindSettingsEvents() {
+    $('#lw_setting_notifications').on('change', function () {
+        setShowNotifications($(this).is(':checked'));
+        saveSettings();
+    });
+    $('#lw_setting_hidden_pregnancy').on('change', function () {
+        setHiddenPregnancy($(this).is(':checked'));
+        saveSettings();
+    });
+    $('.lw-contraception-select').on('change', function () {
+        setContraception($(this).data('who'), $(this).val());
+        saveSettings();
+    });
+
+    const numericFields = [
+        { key: 'heatCycleLength', min: 7 },
+        { key: 'heatDuration', min: 1 },
+        { key: 'rutCycleLength', min: 7 },
+        { key: 'rutDuration', min: 1 },
+        { key: 'pregnancyDuration', min: 1 },
+    ];
+    for (const { key, min } of numericFields) {
+        $(`#lw_setting_${key}`).on('change', function () {
+            const applied = setNumericSetting(key, $(this).val(), min);
+            $(this).val(applied);
+            saveSettings();
+        });
+    }
 }
 
 // ─── Открытие/закрытие модалки ───

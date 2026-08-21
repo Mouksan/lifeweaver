@@ -9,7 +9,7 @@
 // перезагрузку.
 
 import { extension_settings } from '../../../extensions.js';
-import { extensionName, defaultSettings, defaultChatData, defaultCharacterData, defaultPregnancyData, getPreset, getTotalWeeks, rollOffspringCount } from './config.js';
+import { extensionName, defaultSettings, defaultChatData, defaultCharacterData, defaultPregnancyData, getPreset, getTotalWeeks, rollOffspringCount, CONTRACEPTION_TYPES } from './config.js';
 
 function cloneDefault(value) {
     return (value && typeof value === 'object') ? structuredClone(value) : value;
@@ -272,4 +272,27 @@ export function deleteChild(id) {
     const chat = getChatData();
     if (Array.isArray(chat.children)) chat.children = chat.children.filter(c => c.id !== id);
     if (Array.isArray(chat.grownChildren)) chat.grownChildren = chat.grownChildren.filter(c => c.id !== id);
+}
+
+// ── Настройки ──
+export function setContraception(who, typeId) {
+    const valid = CONTRACEPTION_TYPES[typeId] ? typeId : 'none';
+    getCharacterData(who).contraception = valid;
+}
+
+export function setShowNotifications(value) {
+    getSettings().showNotifications = !!value;
+}
+
+export function setHiddenPregnancy(value) {
+    getSettings().hiddenPregnancy = !!value;
+}
+
+// Общий сеттер для числовых глобальных настроек (длины циклов, длительность
+// беременности) — используется одинаково для всех пяти полей в разделе "Настройки".
+export function setNumericSetting(key, value, min = 1) {
+    const s = getSettings();
+    const n = Math.max(min, parseInt(value) || s[key] || min);
+    s[key] = n;
+    return n;
 }

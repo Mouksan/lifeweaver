@@ -584,6 +584,33 @@
     padding: 10px 0;
 }
 
+/* ── Раздел "Настройки" ── */
+.lw-settings-group {
+    margin-bottom: 26px;
+}
+
+.lw-settings-group .lw-content-subtitle {
+    margin-top: 0;
+}
+
+.lw-settings-numeric-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px 18px;
+}
+
+.lw-settings-numeric-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 0.78rem;
+    color: var(--lw-text-dim);
+}
+
+.lw-settings-numeric-grid .lw-input {
+    width: 100%;
+}
+
 /* ── Заглушка пустого раздела ── */
 .lw-empty {
     display: flex;

@@ -130,17 +130,31 @@ export const SECTIONS = [
     { id: 'settings',   label: 'Настройки',         icon: 'fa-gear' },
 ];
 
+// Виды контрацепции и их надёжность — как у вдохновителя. Пока только
+// хранится и показывается; сама механика зачатия (Этап 9) будет её учитывать.
+export const CONTRACEPTION_TYPES = {
+    none:   { id: 'none',   label: 'Нет защиты', chance: 0 },
+    condom: { id: 'condom', label: 'Презерватив', chance: 85 },
+    pill:   { id: 'pill',   label: 'Таблетки', chance: 91 },
+    iud:    { id: 'iud',    label: 'ВМС', chance: 99 },
+};
+
 export const defaultSettings = {
     isEnabled: true,
     chatData: {},
     // Длины циклов течки/гона — общие на все ABO-вселенные. Разбивка по видам
-    // (у драконов гон может идти иначе, чем у людей) — Этап 8, конструктор.
+    // (у драконов гон может идти иначе, чем у людей) — конструктор кастома.
     heatCycleLength: 42,
     heatDuration: 5,
     rutCycleLength: 70,
     rutDuration: 3,
     // Длительность обычной (live) беременности в неделях — для mpreg/омегаверса.
     pregnancyDuration: 40,
+    // Показывать ли уведомления о событиях (Этап 10 — сама механика уведомлений).
+    showNotifications: true,
+    // Скрытая беременность — герой не знает о зачатии, пока не заметит сам
+    // (Этап 9 — сама механика скрытия).
+    hiddenPregnancy: true,
 };
 
 // Дефолт беременности одного персонажа.
@@ -155,9 +169,11 @@ export const defaultPregnancyData = {
 export const defaultCharacterData = {
     designation: 'beta',
     cycleDay: 1,
-    // Явный флаг "может забеременеть" — не выводится из designation/пола,
-    // выставляется руками один раз на чат/карточку.
     canCarry: false,
+    // Своя контрацепция на персонажа и на чат — не глобальная настройка,
+    // потому что один и тот же герой может быть на таблетках в одной истории
+    // и без защиты в другой.
+    contraception: 'none',
     pregnancy: {
         isPregnant: false,
         weeks: 0,

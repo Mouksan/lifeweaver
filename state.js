@@ -145,7 +145,7 @@ export function setCanCarry(who, value) {
     getCharacterData(who).canCarry = !!value;
 }
 
-function activePreset() {
+export function getActivePreset() {
     const universeId = getActiveUniverse();
     if (universeId === 'custom') {
         const cp = getSettings().customPreset;
@@ -156,7 +156,7 @@ function activePreset() {
 }
 
 export function startPregnancy(who) {
-    const preset = activePreset();
+    const preset = getActivePreset();
     const range = preset.offspringRange || { min: 1, max: 1 };
     const count = rollOffspringCount(range);
     const character = getCharacterData(who);
@@ -168,7 +168,7 @@ export function endPregnancy(who) {
 }
 
 export function setPregnancyWeeks(who, weeks) {
-    const preset = activePreset();
+    const preset = getActivePreset();
     const character = getCharacterData(who);
     const pregnancy = character.pregnancy;
     if (!pregnancy?.isPregnant) return;
@@ -190,7 +190,7 @@ export function currentStageMaxWeeks(preset, pregnancy) {
 // Само по себе НЕ переходит в роды: обнуляет счётчик и начинает отсчёт
 // инкубации отдельно, только после того как игрок сам это подтвердил.
 export function advanceToClutch(who) {
-    const preset = activePreset();
+    const preset = getActivePreset();
     if (preset.gestationType !== 'staged') return;
     const character = getCharacterData(who);
     const pregnancy = character.pregnancy;
@@ -201,7 +201,7 @@ export function advanceToClutch(who) {
 }
 
 export function setOffspringCount(who, count) {
-    const preset = activePreset();
+    const preset = getActivePreset();
     const range = preset.offspringRange || { min: 1, max: 1 };
     const character = getCharacterData(who);
     if (!character.pregnancy) return;
@@ -229,7 +229,7 @@ function makeChildId() {
 // Роды/кладка: переносит текущую беременность носителя `who` в список детей
 // как N отдельных записей (N = offspringCount), затем сбрасывает беременность.
 export function completeBirth(who) {
-    const preset = activePreset();
+    const preset = getActivePreset();
     const character = getCharacterData(who);
     const pregnancy = character.pregnancy;
     if (!pregnancy?.isPregnant) return [];
@@ -343,4 +343,129 @@ export function disableCustomPreset() {
     const s = getSettings();
     if (s.customPreset) s.customPreset.isConfigured = false;
     if (getActiveUniverse() === 'custom') setActiveUniverse('mpreg');
+}
+
+// ═══════════════════════════════════════════
+// АВТОМАТИКА — продвижение времени и применение событий от сканера.
+// Всё ниже переиспользует уже существующие ручные функции (startPregnancy,
+// advanceToClutch, completeBirth, endPregnancy, setCycleDay, setPregnancyWeeks) —
+// автоматика просто вызывает их за игрока с дополнительными защитными проверками.
+// ═══════════════════════════════════════════
+
+export function getRpDay() {
+    return getChatData().rpDay || 0;
+}
+
+export function setPregnancyKnown(who, value) {
+    const character = getCharacterData(who);
+    if (character.pregnancy) character.pregnancy.pregnancyKnown = !!value;
+}
+
+// Продвигает день цикла (течка/гон) носителя на N дней. У беты в нашей
+// модели цикла нет вообще — двигать нечего.
+function advanceCycleDayByDays(who, days) {
+    if (days <= 0) return;
+    const character = getCharacterData(who);
+    if (character.designation === 'beta') return;
+    const cfg = getCycleSettings();
+    const maxDay = character.designation === 'alpha' ? cfg.rutCycleLength : cfg.heatCycleLength;
+    const newDay = ((character.cycleDay - 1 + days) % maxDay) + 1;
+    setCycleDay(who, newDay);
+}
+
+// Продвигает беременность носителя на N дней. Копит остаток < 7 дней в
+// pregnancy._dayRemainder, чтобы не терять точность между вызовами —
+// неделя добавляется только когда накопилось 7+ дней.
+function advancePregnancyByDays(who, days) {
+    if (days <= 0) return;
+    const character = getCharacterData(who);
+    const pregnancy = character.pregnancy;
+    if (!pregnancy?.isPregnant) return;
+
+    const totalDays = (pregnancy._dayRemainder || 0) + days;
+    const addWeeks = Math.floor(totalDays / 7);
+    pregnancy._dayRemainder = totalDays % 7;
+    if (addWeeks > 0) {
+        setPregnancyWeeks(who, pregnancy.weeks + addWeeks); // переиспользует существующий клэмп по текущей фазе
+    }
+}
+
+// Взросление детей — общий счётчик на чат (дети общие на семью), копится
+// так же, как в pregnancy._dayRemainder, только на уровне chatData.
+function advanceChildrenAgeByDays(days) {
+    if (days <= 0) return;
+    const children = getChildren();
+    if (children.length === 0) return;
+    const chat = getChatData();
+    const totalDays = (chat._ageDayRemainder || 0) + days;
+    const addWeeks = Math.floor(totalDays / 7);
+    chat._ageDayRemainder = totalDays % 7;
+    if (addWeeks > 0) {
+        for (const child of children) child.ageWeeks = (child.ageWeeks || 0) + addWeeks;
+    }
+}
+
+// Точка входа: сколько дней прошло в истории за этот ответ — двигает разом
+// день чата, циклы обоих персонажей, их беременности и возраст детей.
+export function advanceTimeByDays(days) {
+    if (!days || days <= 0) return;
+    const chat = getChatData();
+    chat.rpDay = (chat.rpDay || 0) + days;
+    advanceCycleDayByDays('user', days);
+    advanceCycleDayByDays('char', days);
+    advancePregnancyByDays('user', days);
+    advancePregnancyByDays('char', days);
+    advanceChildrenAgeByDays(days);
+}
+
+// ── Применение событий сканера — с защитными проверками поверх ручных функций ──
+
+// Зачатие: только если персонаж явно отмечен носителем и ещё не беременен.
+// Тег без этого флага молча игнорируется — это и есть смысл явного флага
+// "может забеременеть", он действует одинаково что для ручной кнопки, что для автоматики.
+export function applyConception(who) {
+    const character = getCharacterData(who);
+    if (!character.canCarry) return false;
+    if (character.pregnancy?.isPregnant) return false;
+    startPregnancy(who);
+    return true;
+}
+
+// Кладка/нерест: только для staged-вселенных, только в фазе формирования,
+// только когда она действительно подошла к концу (проверка внутри advanceToClutch).
+export function applyLayClutch(who) {
+    const preset = getActivePreset();
+    if (preset.gestationType !== 'staged') return false;
+    const character = getCharacterData(who);
+    const pregnancy = character.pregnancy;
+    if (!pregnancy?.isPregnant || pregnancy.stage !== 'formation') return false;
+    if (pregnancy.weeks < preset.stages.first.weeks) return false;
+    advanceToClutch(who);
+    return true;
+}
+
+// Роды/вылупление: беременна и текущая фаза действительно на полном сроке
+// (для staged — именно фаза кладки/инкубации, не формирования).
+export function applyBirth(who) {
+    const preset = getActivePreset();
+    const character = getCharacterData(who);
+    const pregnancy = character.pregnancy;
+    if (!pregnancy?.isPregnant) return null;
+
+    if (preset.gestationType === 'staged') {
+        if (pregnancy.stage !== 'clutch' || pregnancy.weeks < preset.stages.second.weeks) return null;
+    } else {
+        const total = getTotalWeeks(preset, getSettings().pregnancyDuration);
+        if (pregnancy.weeks < total) return null;
+    }
+    return completeBirth(who);
+}
+
+// Потеря беременности (выкидыш/неудачная кладка/т.п.) — просто сброс с пометкой,
+// что это не роды. Дети не создаются.
+export function applyPregnancyLoss(who) {
+    const character = getCharacterData(who);
+    if (!character.pregnancy?.isPregnant) return false;
+    endPregnancy(who);
+    return true;
 }

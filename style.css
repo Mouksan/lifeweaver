@@ -304,6 +304,14 @@
     font-style: italic;
 }
 
+.lw-content code {
+    font-family: var(--lw-font-mono);
+    background: rgba(255, 255, 255, 0.06);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 0.85em;
+}
+
 /* ── Раздел "Цикл" ── */
 .lw-cycle-grid {
     display: grid;

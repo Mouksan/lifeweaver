@@ -10,9 +10,11 @@ import {
     advanceToClutch, currentStageMaxWeeks,
     completeBirth, getChildren, getGrownChildren, updateChildField, archiveChild, deleteChild, restoreChild,
     setContraception, setShowNotifications, setHiddenPregnancy, setNumericSetting,
-    getCustomPresetDraft, saveCustomPreset, disableCustomPreset,
+    getCustomPresetDraft, saveCustomPreset, disableCustomPreset, getRpDay,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
+import { initAutomation } from './automation.js';
+import { updatePromptInjection } from './prompts.js';
 
 const extensionFolderPath = `scripts/extensions/${extensionName}`;
 
@@ -154,6 +156,11 @@ function renderOverviewSection(preset) {
             <div class="lw-card-label">Активная вселенная в этом чате</div>
             <div class="lw-card-value">${preset.label} <span class="lw-dim">(${preset.sublabel})</span></div>
             <div class="lw-card-sub">${summarizePreset(preset)}</div>
+        </div>
+        <div class="lw-card">
+            <div class="lw-card-label">Автоматика</div>
+            <div class="lw-card-value">День истории: ${getRpDay()}</div>
+            <div class="lw-card-sub">Двигается тегом <code>DAYS_PASSED</code> от модели — см. раздел «Настройки» → включено ли расширение.</div>
         </div>
         <p class="lw-placeholder-note">Остальные карточки обзора (здоровье, цикл, беременность одной строкой) соберутся по мере того, как наполнятся сами разделы.</p>
     `);
@@ -830,6 +837,7 @@ function bindSettingsUI() {
         const context = SillyTavern.getContext();
         context.eventSource?.on(context.eventTypes?.CHAT_CHANGED, () => {
             resetChatIdCache();
+            updatePromptInjection();
             if ($('#lw_modal_overlay').hasClass('lw-open')) {
                 renderUniverseTabs();
                 renderContent();
@@ -847,6 +855,14 @@ function saveSettings() {
     } catch (e) {
         console.warn('[Lifeweaver] Не удалось сохранить настройки:', e);
     }
+    // Промпт зависит почти от всего состояния (вселенная, designation, canCarry,
+    // беременность, контрацепция) — проще освежать его в одной точке после
+    // каждого изменения, чем расставлять вызов по всем обработчикам вручную.
+    try {
+        updatePromptInjection();
+    } catch (e) {
+        console.warn('[Lifeweaver] Не удалось обновить промпт:', e);
+    }
 }
 
 jQuery(async () => {
@@ -854,7 +870,9 @@ jQuery(async () => {
         const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
         $('#extensions_settings2').append(settingsHtml);
         bindSettingsUI();
-        console.log('[Lifeweaver] Загружен, цикл на месте.');
+        initAutomation();
+        updatePromptInjection();
+        console.log('[Lifeweaver] Загружен, автоматика подключена.');
     } catch (e) {
         console.error('[Lifeweaver] Ошибка загрузки:', e);
     }

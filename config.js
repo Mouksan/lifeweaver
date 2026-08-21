@@ -209,6 +209,11 @@ export const defaultPregnancyData = {
     weeks: 0,
     stage: 'formation', // используется только при gestationType: 'staged'
     offspringCount: 1,
+    // Знает ли персонаж о беременности (актуально только если settings.hiddenPregnancy = true).
+    pregnancyKnown: false,
+    // Остаток дней < 7 между автоматическими продвижениями времени — чтобы
+    // не терять точность, накапливая дробные недели от DAYS_PASSED тегов.
+    _dayRemainder: 0,
 };
 
 // Дефолт для одного персонажа (заполняется лениво под ключами user/char).
@@ -220,21 +225,20 @@ export const defaultCharacterData = {
     // потому что один и тот же герой может быть на таблетках в одной истории
     // и без защиты в другой.
     contraception: 'none',
-    pregnancy: {
-        isPregnant: false,
-        weeks: 0,
-        stage: 'formation',
-        offspringCount: 1,
-    },
+    pregnancy: { ...defaultPregnancyData },
 };
 
 export const defaultChatData = {
     universe: DEFAULT_UNIVERSE,
     characters: {
-        user: { designation: 'omega', cycleDay: 1, canCarry: false, pregnancy: { isPregnant: false, weeks: 0, stage: 'formation', offspringCount: 1 } },
-        char: { designation: 'alpha', cycleDay: 1, canCarry: false, pregnancy: { isPregnant: false, weeks: 0, stage: 'formation', offspringCount: 1 } },
+        user: { designation: 'omega', cycleDay: 1, canCarry: false, pregnancy: { ...defaultPregnancyData } },
+        char: { designation: 'alpha', cycleDay: 1, canCarry: false, pregnancy: { ...defaultPregnancyData } },
     },
     // Дети общие на семью, не привязаны к конкретному родителю-носителю.
     children: [],
     grownChildren: [],
+    // Счётчик прошедших в истории дней (двигается тегом DAYS_PASSED от модели).
+    rpDay: 0,
+    // Остаток дней < 7 для взросления детей отдельно от беременностей.
+    _ageDayRemainder: 0,
 };

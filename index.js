@@ -7,6 +7,7 @@ import {
     getSettings, getActiveUniverse, setActiveUniverse, resetChatIdCache,
     getCharacterData, setDesignation, setCycleDay, getCycleSettings, carrierDisplayName,
     setCanCarry, startPregnancy, endPregnancy, setPregnancyWeeks, setOffspringCount,
+    completeBirth, getChildren, getGrownChildren, updateChildField, archiveChild, deleteChild,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 
@@ -91,6 +92,10 @@ function renderContent() {
     }
     if (activeSection === 'pregnancy') {
         renderPregnancySection(preset);
+        return;
+    }
+    if (activeSection === 'child') {
+        renderChildSection(preset);
         return;
     }
 
@@ -256,6 +261,15 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
         `;
     }
 
+    const isFullTerm = pregnancy.weeks >= totalWeeks;
+    const birthVerb = preset.gestationType === 'staged' ? 'Вылупление' : 'Роды';
+    const actionsHtml = isFullTerm ? `
+        <button type="button" class="lw-btn lw-complete-birth" data-who="${who}">${birthVerb} — записать ${pregnancy.offspringCount} в «Ребёнок»</button>
+        <button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить без родов</button>
+    ` : `
+        <button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить (тест)</button>
+    `;
+
     return `
         ${barsHtml}
         <div class="lw-day-control">
@@ -266,7 +280,7 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
             <label>${preset.offspringLabel}:</label>
             <input type="number" class="lw-input lw-offspring-input" data-who="${who}" min="${preset.offspringRange.min}" max="${preset.offspringRange.max}" value="${pregnancy.offspringCount}">
         </div>
-        <button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Завершить (сбросить)</button>
+        ${actionsHtml}
     `;
 }
 
@@ -289,6 +303,14 @@ function bindPregnancyEvents() {
         saveSettings();
         renderContent();
     });
+    $('.lw-complete-birth').on('click', function () {
+        const who = $(this).data('who');
+        completeBirth(who);
+        saveSettings();
+        activeSection = 'child';
+        renderSidebar();
+        renderContent();
+    });
     $('.lw-weeks-input').on('change', function () {
         const who = $(this).data('who');
         setPregnancyWeeks(who, $(this).val());
@@ -298,6 +320,80 @@ function bindPregnancyEvents() {
     $('.lw-offspring-input').on('change', function () {
         const who = $(this).data('who');
         setOffspringCount(who, $(this).val());
+        saveSettings();
+        renderContent();
+    });
+}
+
+// ─── Раздел "Ребёнок" ───
+function renderChildSection(preset) {
+    const children = getChildren();
+    const grown = getGrownChildren();
+
+    const listHtml = children.length === 0
+        ? `<div class="lw-empty"><i class="fa-solid fa-child"></i><p>Пока никого нет — запись появится сама после родов/кладки в разделе «Беременность».</p></div>`
+        : `<div class="lw-child-list" id="lw_child_list"></div>`;
+
+    const grownHtml = grown.length ? `
+        <h3 class="lw-content-subtitle">Архив (выросли)</h3>
+        <ul class="lw-grown-list">${grown.map(c => `<li>${c.name || 'Без имени'}</li>`).join('')}</ul>
+    ` : '';
+
+    $('#lw_content').html(`
+        <h2 class="lw-content-title">Ребёнок</h2>
+        ${listHtml}
+        ${grownHtml}
+    `);
+
+    if (children.length) {
+        const $list = $('#lw_child_list');
+        for (const child of children) {
+            $list.append(renderChildCard(child, preset));
+        }
+        bindChildEvents();
+    }
+}
+
+function renderChildCard(child, preset) {
+    const parentName = carrierDisplayName(child.parentWho);
+    const originPreset = UNIVERSE_PRESETS[child.universe] || preset;
+    return `
+        <div class="lw-card lw-child-card" style="--lw-card-accent: ${originPreset.color}" data-id="${child.id}">
+            <input type="text" class="lw-input lw-child-name" data-id="${child.id}" placeholder="Пока без имени" value="${child.name || ''}">
+            <div class="lw-dim lw-child-origin">От: ${parentName} · ${originPreset.label}</div>
+            <div class="lw-day-control">
+                <label>Возраст (нед.):</label>
+                <input type="number" class="lw-input lw-child-age" data-id="${child.id}" min="0" value="${child.ageWeeks || 0}">
+            </div>
+            <textarea class="lw-input lw-child-notes" data-id="${child.id}" rows="2" placeholder="Заметки, вехи развития...">${child.notes || ''}</textarea>
+            <div class="lw-child-actions">
+                <button type="button" class="lw-btn lw-btn-muted lw-archive-child" data-id="${child.id}">Архивировать (вырос)</button>
+                <button type="button" class="lw-btn lw-btn-muted lw-delete-child" data-id="${child.id}">Удалить</button>
+            </div>
+        </div>
+    `;
+}
+
+function bindChildEvents() {
+    $('.lw-child-name').on('change', function () {
+        updateChildField($(this).data('id'), 'name', $(this).val());
+        saveSettings();
+    });
+    $('.lw-child-age').on('change', function () {
+        updateChildField($(this).data('id'), 'ageWeeks', Math.max(0, parseInt($(this).val()) || 0));
+        saveSettings();
+    });
+    $('.lw-child-notes').on('change', function () {
+        updateChildField($(this).data('id'), 'notes', $(this).val());
+        saveSettings();
+    });
+    $('.lw-archive-child').on('click', function () {
+        archiveChild($(this).data('id'));
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-delete-child').on('click', function () {
+        deleteChild($(this).data('id'));
         saveSettings();
         renderContent();
     });

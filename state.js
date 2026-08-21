@@ -181,3 +181,66 @@ export function setOffspringCount(who, count) {
     const n = Math.max(range.min, Math.min(range.max, parseInt(count) || range.min));
     character.pregnancy.offspringCount = n;
 }
+
+// ── Дети (общий список на семью, не привязан к конкретному носителю) ──
+export function getChildren() {
+    const chat = getChatData();
+    if (!Array.isArray(chat.children)) chat.children = [];
+    return chat.children;
+}
+
+export function getGrownChildren() {
+    const chat = getChatData();
+    if (!Array.isArray(chat.grownChildren)) chat.grownChildren = [];
+    return chat.grownChildren;
+}
+
+function makeChildId() {
+    return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Роды/кладка: переносит текущую беременность носителя `who` в список детей
+// как N отдельных записей (N = offspringCount), затем сбрасывает беременность.
+export function completeBirth(who) {
+    const preset = activePreset();
+    const character = getCharacterData(who);
+    const pregnancy = character.pregnancy;
+    if (!pregnancy?.isPregnant) return [];
+
+    const children = getChildren();
+    const created = [];
+    for (let i = 0; i < pregnancy.offspringCount; i++) {
+        const child = {
+            id: makeChildId(),
+            name: '',
+            ageWeeks: 0,
+            parentWho: who,
+            universe: preset.id,
+            notes: '',
+        };
+        children.push(child);
+        created.push(child);
+    }
+
+    character.pregnancy = cloneDefault(defaultPregnancyData);
+    return created;
+}
+
+export function updateChildField(id, field, value) {
+    const child = getChildren().find(c => c.id === id);
+    if (child) child[field] = value;
+}
+
+export function archiveChild(id) {
+    const children = getChildren();
+    const idx = children.findIndex(c => c.id === id);
+    if (idx === -1) return;
+    const [child] = children.splice(idx, 1);
+    getGrownChildren().push(child);
+}
+
+export function deleteChild(id) {
+    const chat = getChatData();
+    if (Array.isArray(chat.children)) chat.children = chat.children.filter(c => c.id !== id);
+    if (Array.isArray(chat.grownChildren)) chat.grownChildren = chat.grownChildren.filter(c => c.id !== id);
+}

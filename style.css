@@ -451,6 +451,47 @@
     font-style: italic;
 }
 
+/* ── Раздел "Ребёнок" ── */
+.lw-child-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+}
+
+.lw-child-card {
+    gap: 8px;
+}
+
+.lw-child-origin {
+    font-size: 0.75rem;
+}
+
+.lw-child-notes {
+    width: 100%;
+    resize: vertical;
+    font-family: var(--lw-font-body);
+}
+
+.lw-child-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.lw-content-subtitle {
+    font-family: var(--lw-font-display);
+    font-size: 0.95rem;
+    margin: 22px 0 8px;
+    color: var(--lw-text-dim);
+}
+
+.lw-grown-list {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--lw-text-dim);
+    font-size: 0.85rem;
+}
+
 /* ── Заглушка пустого раздела ── */
 .lw-empty {
     display: flex;

@@ -172,4 +172,7 @@ export const defaultChatData = {
         user: { designation: 'omega', cycleDay: 1, canCarry: false, pregnancy: { isPregnant: false, weeks: 0, stage: 'formation', offspringCount: 1 } },
         char: { designation: 'alpha', cycleDay: 1, canCarry: false, pregnancy: { isPregnant: false, weeks: 0, stage: 'formation', offspringCount: 1 } },
     },
+    // Дети общие на семью, не привязаны к конкретному родителю-носителю.
+    children: [],
+    grownChildren: [],
 };

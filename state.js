@@ -9,7 +9,7 @@
 // перезагрузку.
 
 import { extension_settings } from '../../../extensions.js';
-import { extensionName, defaultSettings, defaultChatData, defaultCharacterData, defaultPregnancyData, getPreset, getTotalWeeks } from './config.js';
+import { extensionName, defaultSettings, defaultChatData, defaultCharacterData, defaultPregnancyData, getPreset, getTotalWeeks, rollOffspringCount } from './config.js';
 
 function cloneDefault(value) {
     return (value && typeof value === 'object') ? structuredClone(value) : value;
@@ -152,7 +152,7 @@ function activePreset() {
 export function startPregnancy(who) {
     const preset = activePreset();
     const range = preset.offspringRange || { min: 1, max: 1 };
-    const count = range.min + Math.floor(Math.random() * (range.max - range.min + 1));
+    const count = rollOffspringCount(range);
     const character = getCharacterData(who);
     character.pregnancy = { isPregnant: true, weeks: 0, stage: 'formation', offspringCount: count };
 }

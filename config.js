@@ -14,7 +14,7 @@ export const UNIVERSE_PRESETS = {
         cycleSystem: 'none',
         gestationType: 'live',
         color: '#8a9490',
-        offspringRange: { min: 1, max: 1 },
+        offspringRange: { min: 1, max: 3 },
         offspringLabel: 'Детей',
     },
     omegaverse: {
@@ -24,7 +24,7 @@ export const UNIVERSE_PRESETS = {
         cycleSystem: 'abo',
         gestationType: 'live',
         color: '#8967b0',
-        offspringRange: { min: 1, max: 1 },
+        offspringRange: { min: 1, max: 3 },
         offspringLabel: 'Детей',
     },
     dragon: {
@@ -94,6 +94,28 @@ export function getTotalWeeks(preset, pregnancyDuration) {
         return preset.stages.first.weeks + preset.stages.second.weeks;
     }
     return Math.max(1, parseInt(pregnancyDuration) || 40);
+}
+
+// ── Розыгрыш количества потомства: не равномерный рандом по диапазону,
+// а затухающий шанс "ещё один" — как twinsChance/tripletsChance у вдохновителя,
+// только обобщённый на любой диапазон (1-3 у людей/драконов, 3-12 у мерфолка).
+// Шанс на первого "лишнего" — OFFSPRING_STEP_CHANCE, на каждого следующего —
+// в OFFSPRING_STEP_DECAY раз меньше предыдущего.
+export const OFFSPRING_STEP_CHANCE = 0.16;
+export const OFFSPRING_STEP_DECAY = 0.3;
+
+export function rollOffspringCount(range) {
+    let count = range.min;
+    let chance = OFFSPRING_STEP_CHANCE;
+    while (count < range.max) {
+        if (Math.random() < chance) {
+            count++;
+            chance *= OFFSPRING_STEP_DECAY;
+        } else {
+            break;
+        }
+    }
+    return count;
 }
 
 // Разделы левого сайдбара. Контент появится постепенно (Этапы 4–8);

@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════
 // SCANNER — парсинг тегов модели (DAYS_PASSED, CONCEPTION_CHECK, LAY_CLUTCH,
-// BIRTH, PREGNANCY_LOSS, PREGNANCY_KNOWN)
+// BIRTH, MISCARRIAGE, ABORTION, PREGNANCY_KNOWN)
 // ═══════════════════════════════════════════
 //
 // Как у вдохновителя: теги распознаются ТОЛЬКО внутри HTML-комментариев
@@ -31,7 +31,7 @@
 //  - Нет SEX_REVEAL/BABY_TRAITS пока — вернутся отдельным заходом вместе
 //    с полями пола/черт в данных ребёнка.
 
-const KNOWN_TAGS = ['DAYS_PASSED', 'CONCEPTION_CHECK', 'LAY_CLUTCH', 'BIRTH', 'PREGNANCY_LOSS', 'PREGNANCY_KNOWN'];
+const KNOWN_TAGS = ['DAYS_PASSED', 'CONCEPTION_CHECK', 'LAY_CLUTCH', 'BIRTH', 'MISCARRIAGE', 'ABORTION', 'PREGNANCY_KNOWN'];
 const TAG_NAME_RE = new RegExp(`\\[(${KNOWN_TAGS.join('|')})(:CHAR)?(?:[:\\s]+(\\d+))?\\]`, 'i');
 // Безопасный поиск ОДНОГО HTML-комментария: нежадно до первого "-->",
 // поэтому не может перепрыгнуть через "-->" чужого комментария.
@@ -93,6 +93,14 @@ export function stripThink(text) {
     return res;
 }
 
+// Sanity-фильтры прерывания беременности — портированы у вдохновителя,
+// расширены словарём для двухстадийных вселенных (кладка/икра могут
+// «погибнуть», а не «выкидышем выйти»).
+// Смысл тот же, что у CONCEPTION_CHECK: тег валиден только если в тексте
+// сцены есть соответствующий контекст, иначе это галлюцинация модели.
+const MISCARRIAGE_CONTEXT_RE = /(выкидыш|miscarr|кровотеч|кров(?:ь|и|ью)|потер(?:я|ял|яла|яли)|схватк|спазм|боль|скорая|больниц|врач|плод|срыв|тянущ|замерш|погиб|мертв|мёртв|не выжил|раздавл|разбит|треснул|остыл|кладк|икр|яйц|гнезд)/i;
+const ABORTION_CONTEXT_RE = /(аборт|abortion|прерыв|клиник|процедур|вакуум|таблетк|гинеколог|операц|избавит|уничтож|раздавил|разбил|выброс|утопил)/i;
+
 // Похоже ли на реальное семяизвержение ВНУТРЬ — как у вдохновителя. Модель
 // иногда вешает тег по инерции (сцена с игрушкой, чужой секс, тег просто
 // мелькал в контексте) — слов "секс"/"член" недостаточно, они есть в любой сцене.
@@ -132,6 +140,10 @@ export function scanMessage(text) {
     let charConception = has('CONCEPTION_CHECK', true);
     if (charConception && !looksLikeInternalRelease(plain)) charConception = false;
 
+    // Прерывание беременности: тег + подтверждающий контекст в сцене
+    const miscarriageOk = MISCARRIAGE_CONTEXT_RE.test(plain);
+    const abortionOk = ABORTION_CONTEXT_RE.test(plain);
+
     const result = {
         conception,
         charConception,
@@ -139,15 +151,18 @@ export function scanMessage(text) {
         charLayClutch: has('LAY_CLUTCH', true),
         birth: has('BIRTH', false),
         charBirth: has('BIRTH', true),
-        loss: has('PREGNANCY_LOSS', false),
-        charLoss: has('PREGNANCY_LOSS', true),
+        miscarriage: has('MISCARRIAGE', false) && miscarriageOk,
+        charMiscarriage: has('MISCARRIAGE', true) && miscarriageOk,
+        abortion: has('ABORTION', false) && abortionOk,
+        charAbortion: has('ABORTION', true) && abortionOk,
         known: has('PREGNANCY_KNOWN', false),
         charKnown: has('PREGNANCY_KNOWN', true),
         daysPassed: scanDaysPassed(text),
     };
 
     const anyEvent = result.conception || result.charConception || result.layClutch || result.charLayClutch
-        || result.birth || result.charBirth || result.loss || result.charLoss || result.known || result.charKnown;
+        || result.birth || result.charBirth || result.miscarriage || result.charMiscarriage
+        || result.abortion || result.charAbortion || result.known || result.charKnown;
     if (!anyEvent && result.daysPassed === 0) return null;
 
     return result;

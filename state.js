@@ -435,6 +435,9 @@ export function applyConception(who) {
     const character = getCharacterData(who);
     if (!character.canCarry) return false;
     if (character.pregnancy?.isPregnant) return false;
+    // После недавней потери зачатие заблокировано на несколько сообщений —
+    // иначе модель «воскрешает» беременность из старого контекста.
+    if (isBlocked('conception', who)) return false;
     startPregnancy(who);
     return true;
 }
@@ -463,14 +466,78 @@ export function applyBirth(who) {
     const character = getCharacterData(who);
     const pregnancy = character.pregnancy;
     if (!pregnancy?.isPregnant) return null;
+    if (isBlocked('birth', who)) return null;
     return completeBirth(who);
 }
 
-// Потеря беременности (выкидыш/неудачная кладка/т.п.) — просто сброс с пометкой,
-// что это не роды. Дети не создаются.
-export function applyPregnancyLoss(who) {
+// ── Прерывание беременности (выкидыш / аборт / ручной сброс) ──
+// Портировано у вдохновителя вместе с анти-воскрешением: после потери модель
+// имеет свойство «вернуть» беременность из старого контекста («ты же была на
+// 16 неделе…»), поэтому теги зачатия и родов игнорируются несколько сообщений.
+const CONCEPTION_BLOCK_MESSAGES = 6;
+const BIRTH_BLOCK_MESSAGES = 10;
+
+function currentChatLength() {
+    try {
+        const ctx = typeof SillyTavern?.getContext === 'function' ? SillyTavern.getContext() : null;
+        return ctx?.chat?.length || 0;
+    } catch (e) {
+        return 0;
+    }
+}
+
+export function isBlocked(kind, who) {
+    const chat = getChatData();
+    const map = kind === 'birth' ? chat._birthBlockedUntil : chat._conceptionBlockedUntil;
+    if (!map) return false;
+    return currentChatLength() <= (map[who] || 0);
+}
+
+// reason: 'miscarriage' | 'abortion' | 'manual'
+export function terminatePregnancy(who, reason = 'manual') {
     const character = getCharacterData(who);
-    if (!character.pregnancy?.isPregnant) return false;
-    endPregnancy(who);
+    const pregnancy = character.pregnancy;
+    if (!pregnancy?.isPregnant) return false;
+
+    const chat = getChatData();
+    const preset = getActivePreset();
+
+    // Запоминаем, что именно потеряли — для UI и промпта
+    if (!chat.lastLoss) chat.lastLoss = { user: null, char: null };
+    chat.lastLoss[who] = {
+        reason,
+        stage: preset.gestationType === 'staged' ? pregnancy.stage : 'live',
+        weeks: pregnancy.weeks,
+        offspringCount: pregnancy.offspringCount,
+        offspringLabel: preset.offspringLabel,
+        rpDay: chat.rpDay || 0,
+    };
+
+    character.pregnancy = cloneDefault(defaultPregnancyData);
+
+    // Анти-воскрешение
+    const len = currentChatLength();
+    if (!chat._conceptionBlockedUntil) chat._conceptionBlockedUntil = { user: 0, char: 0 };
+    if (!chat._birthBlockedUntil) chat._birthBlockedUntil = { user: 0, char: 0 };
+    chat._conceptionBlockedUntil[who] = len + CONCEPTION_BLOCK_MESSAGES;
+    chat._birthBlockedUntil[who] = len + BIRTH_BLOCK_MESSAGES;
+
     return true;
+}
+
+export function getLastLoss(who) {
+    return getChatData().lastLoss?.[who] || null;
+}
+
+export function clearLastLoss(who) {
+    const chat = getChatData();
+    if (chat.lastLoss) chat.lastLoss[who] = null;
+}
+
+export function applyMiscarriage(who) {
+    return terminatePregnancy(who, 'miscarriage');
+}
+
+export function applyAbortion(who) {
+    return terminatePregnancy(who, 'abortion');
 }

@@ -11,6 +11,7 @@ import {
     completeBirth, getChildren, getGrownChildren, updateChildField, archiveChild, deleteChild, restoreChild,
     setContraception, setShowNotifications, setHiddenPregnancy, setNumericSetting,
     getCustomPresetDraft, saveCustomPreset, disableCustomPreset, getRpDay, setRpDay,
+    applyMiscarriage, applyAbortion, getLastLoss, clearLastLoss,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { initAutomation, refreshRegenSnapshot, clearRegenState } from './automation.js';
@@ -272,7 +273,16 @@ function renderPregnancyCard(who, preset, settings) {
     if (!data.canCarry) {
         bodyHtml = `<p class="lw-dim-note">Не отмечен(а) как носитель в этой истории.</p>`;
     } else if (!data.pregnancy?.isPregnant) {
-        bodyHtml = `<button type="button" class="lw-btn lw-start-pregnancy" data-who="${who}">Начать беременность (тест)</button>`;
+        const loss = getLastLoss(who);
+        const lossHtml = loss ? `
+            <div class="lw-loss-note">
+                <i class="fa-solid fa-heart-crack"></i>
+                ${loss.reason === 'abortion' ? 'Беременность прервана' : 'Беременность потеряна'}
+                <span class="lw-dim">· ${loss.weeks} нед. · ${loss.offspringCount} ${(loss.offspringLabel || '').toLowerCase()}</span>
+                <button type="button" class="lw-btn lw-btn-muted lw-clear-loss" data-who="${who}">Скрыть</button>
+            </div>
+        ` : '';
+        bodyHtml = lossHtml + `<button type="button" class="lw-btn lw-start-pregnancy" data-who="${who}">Начать беременность (тест)</button>`;
     } else {
         bodyHtml = renderPregnancyProgress(data.pregnancy, preset, totalWeeks, who);
     }
@@ -337,6 +347,15 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
         actionsHtml = `<button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить (тест)</button>`;
     }
 
+    // Прерывание доступно на любом сроке и любой стадии
+    const inClutch = preset.gestationType === 'staged' && pregnancy.stage === 'clutch';
+    actionsHtml += `
+        <div class="lw-loss-actions">
+            <button type="button" class="lw-btn lw-btn-danger lw-miscarriage" data-who="${who}">${inClutch ? 'Кладка погибла' : 'Выкидыш'}</button>
+            <button type="button" class="lw-btn lw-btn-danger lw-abortion" data-who="${who}">${inClutch ? 'Уничтожить кладку' : 'Аборт'}</button>
+        </div>
+    `;
+
     const weeksLabel = preset.gestationType === 'staged' ? 'Неделя (в этой фазе):' : 'Неделя:';
 
     return `
@@ -389,6 +408,21 @@ function bindPregnancyEvents() {
     $('.lw-weeks-input').on('change', function () {
         const who = $(this).data('who');
         setPregnancyWeeks(who, $(this).val());
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-miscarriage').on('click', function () {
+        applyMiscarriage($(this).data('who'));
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-abortion').on('click', function () {
+        applyAbortion($(this).data('who'));
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-clear-loss').on('click', function () {
+        clearLastLoss($(this).data('who'));
         saveSettings();
         renderContent();
     });

@@ -25,7 +25,7 @@ import { eventSource, event_types, saveSettingsDebounced } from '../../../../scr
 import {
     getSettings, getChatData, getCurrentChatId,
     advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
-    applyPregnancyLoss, setPregnancyKnown,
+    applyMiscarriage, applyAbortion, setPregnancyKnown,
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
@@ -152,13 +152,16 @@ function applyScanResult(result) {
 
     for (const who of ['user', 'char']) {
         const isChar = who === 'char';
-        const lossTag = isChar ? result.charLoss : result.loss;
+        const miscarriageTag = isChar ? result.charMiscarriage : result.miscarriage;
+        const abortionTag = isChar ? result.charAbortion : result.abortion;
         const conceptionTag = isChar ? result.charConception : result.conception;
         const layTag = isChar ? result.charLayClutch : result.layClutch;
         const birthTag = isChar ? result.charBirth : result.birth;
         const knownTag = isChar ? result.charKnown : result.known;
 
-        if (lossTag) { applyPregnancyLoss(who); continue; }
+        // Прерывание — взаимоисключающе с кладкой/родами, обрабатывается первым
+        if (abortionTag) { applyAbortion(who); continue; }
+        if (miscarriageTag) { applyMiscarriage(who); continue; }
         if (conceptionTag) applyConception(who);
         if (layTag) applyLayClutch(who);
         if (birthTag) applyBirth(who);

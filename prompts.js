@@ -24,7 +24,7 @@
 
 import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { extensionName, CONTRACEPTION_TYPES } from './config.js';
-import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings } from './state.js';
+import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 
 function designationLabelEn(d) {
@@ -74,6 +74,11 @@ function characterStatusContext(who, preset) {
         return `${name}: currently ${stageLabel.toLowerCase()}, ${pregnancy.weeks}/${stageMax} weeks, carrying ${pregnancy.offspringCount} ${preset.offspringLabel.toLowerCase()}.\n`;
     }
     if (character.canCarry) {
+        const loss = getLastLoss(who);
+        if (loss) {
+            const what = loss.reason === 'abortion' ? 'terminated' : 'lost';
+            return `${name}: NOT pregnant — the previous pregnancy was ${what}. Never write or imply ${name} is still pregnant; do not resurrect it from earlier context.\n`;
+        }
         return `${name}: can conceive, not currently pregnant.\n`;
     }
     return '';
@@ -119,7 +124,19 @@ function characterTagBlock(who, preset) {
             b += `If the offspring actually ${verb} THIS reply${urgency} (out and separate — not just labor or contractions), add: <!-- [BIRTH${tagSuffix}] -->\n`;
         }
 
-        b += `If ${name}'s pregnancy is narratively LOST this reply (miscarriage, failed clutch, abortion — an actual completed loss, not fear or discussion), add instead: <!-- [PREGNANCY_LOSS${tagSuffix}] --> (never combine with a birth/lay tag).\n`;
+        // Прерывание: формулировки зависят от стадии — на инкубации теряют
+        // уже отложенную кладку, а не вынашиваемый плод.
+        const inClutch = preset.gestationType === 'staged' && pregnancy.stage === 'clutch';
+        const lossWhat = inClutch
+            ? `the clutch is destroyed or dies (crushed, gone cold, confirmed dead — not merely at risk)`
+            : `the pregnancy is LOST (confirmed loss — heavy bleeding with loss, doctor confirms it, not mere pain, fear or a threat)`;
+        const endWhat = inClutch
+            ? `the clutch is deliberately destroyed or discarded THIS reply (actually done, not just discussed or threatened)`
+            : `an abortion is actually performed on ${name} THIS reply (procedure completed — not discussed, planned, or on the way to the clinic)`;
+
+        b += `If ${lossWhat} THIS reply, add: <!-- [MISCARRIAGE${tagSuffix}] -->\n`;
+        b += `If ${endWhat}, add instead: <!-- [ABORTION${tagSuffix}] -->\n`;
+        b += `Never combine either with a birth/lay tag in the same reply.\n`;
     } else if (character.canCarry) {
         b += `If in THIS reply semen is released INSIDE ${name} (internal release / creampie${preset.cycleSystem === 'abo' ? ' / knotting' : ''}) — real semen from a body, happening now — add: <!-- [CONCEPTION_CHECK${tagSuffix}] -->. NEVER for toys, fingers, oral, anal without internal release, a condom that held, or a scene that merely mentions sex.\n`;
         b += contraceptionLine(who, name, tagSuffix);

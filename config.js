@@ -241,4 +241,12 @@ export const defaultChatData = {
     rpDay: 0,
     // Остаток дней < 7 для взросления детей отдельно от беременностей.
     _ageDayRemainder: 0,
+    // Последняя потеря беременности по каждому носителю — для UI и промпта:
+    // { reason: 'miscarriage'|'abortion'|'manual', stage, offspringCount, rpDay }
+    lastLoss: { user: null, char: null },
+    // Анти-воскрешение (как у вдохновителя): после потери модель не должна
+    // «вернуть» беременность из старого контекста. Числа — длина чата, до
+    // которой соответствующие теги игнорируются.
+    _conceptionBlockedUntil: { user: 0, char: 0 },
+    _birthBlockedUntil: { user: 0, char: 0 },
 };

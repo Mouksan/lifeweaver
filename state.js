@@ -431,33 +431,30 @@ export function applyConception(who) {
     return true;
 }
 
-// Кладка/нерест: только для staged-вселенных, только в фазе формирования,
-// только когда она действительно подошла к концу (проверка внутри advanceToClutch).
+// Кладка/нерест: только для staged-вселенных и только из фазы формирования.
+// Срок НЕ проверяем (как вдохновитель с родами) — кладка может случиться
+// раньше по сюжету, а главное: событие и достижение срока приходят в одном
+// сообщении, так что жёсткая проверка отбрасывала бы легитимный тег.
 export function applyLayClutch(who) {
     const preset = getActivePreset();
     if (preset.gestationType !== 'staged') return false;
     const character = getCharacterData(who);
     const pregnancy = character.pregnancy;
     if (!pregnancy?.isPregnant || pregnancy.stage !== 'formation') return false;
-    if (pregnancy.weeks < preset.stages.first.weeks) return false;
-    advanceToClutch(who);
+    pregnancy.stage = 'clutch';
+    pregnancy.weeks = 0;
+    pregnancy._dayRemainder = 0;
     return true;
 }
 
-// Роды/вылупление: беременна и текущая фаза действительно на полном сроке
-// (для staged — именно фаза кладки/инкубации, не формирования).
+// Роды/вылупление: доверяем нарративу — если модель говорит, что потомство
+// вышло, значит вышло, независимо от срока (преждевременные роды, ускоренное
+// РП, ручная беременность на нестандартном сроке). Философия вдохновителя:
+// расширение должно ловить роды независимо от срока.
 export function applyBirth(who) {
-    const preset = getActivePreset();
     const character = getCharacterData(who);
     const pregnancy = character.pregnancy;
     if (!pregnancy?.isPregnant) return null;
-
-    if (preset.gestationType === 'staged') {
-        if (pregnancy.stage !== 'clutch' || pregnancy.weeks < preset.stages.second.weeks) return null;
-    } else {
-        const total = getTotalWeeks(preset, getSettings().pregnancyDuration);
-        if (pregnancy.weeks < total) return null;
-    }
     return completeBirth(who);
 }
 

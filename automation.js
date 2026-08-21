@@ -97,6 +97,11 @@ function handleMessageAt(index) {
         if (result) {
             applyScanResult(result);
             updatePromptInjection();
+            // Даём интерфейсу знать, что состояние изменилось — если панель
+            // открыта, она перерисуется сама, без переключения вкладок.
+            try {
+                document.dispatchEvent(new CustomEvent('lifeweaver:state-changed'));
+            } catch (e) { /* ignore */ }
         }
         cleanMessageTags(msg);
         saveSettingsDebounced();

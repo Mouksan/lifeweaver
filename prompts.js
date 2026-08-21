@@ -103,14 +103,20 @@ function characterTagBlock(who, preset) {
             b += `${name} does NOT consciously know yet — never state or imply the pregnancy is confirmed, only vague early signs once past the first couple of weeks. If ${name} definitively confirms it (test, doctor) THIS reply, add: <!-- [PREGNANCY_KNOWN${tagSuffix}] -->\n`;
         }
 
-        const isFullTerm = pregnancy.weeks >= stageMax;
+        // ВАЖНО (как у вдохновителя): инструкция висит ВСЁ ВРЕМЯ, пока идёт
+        // беременность, а не только по достижении полного срока. Событие и
+        // достижение срока происходят в ОДНОМ ответе — если показывать
+        // инструкцию только по факту полного срока, она опаздывает на ход,
+        // и модель уже не станет заново описывать то, что описала абзацем выше.
+        // Плюс роды/кладка могут случиться раньше срока по сюжету.
+        const nearTerm = pregnancy.weeks >= Math.floor(stageMax * 0.85);
+        const urgency = nearTerm ? ' — DUE NOW, this is expected any moment' : '';
+
         if (preset.gestationType === 'staged' && pregnancy.stage === 'formation') {
-            if (isFullTerm) {
-                b += `${name}'s formation phase is complete — if the clutch is actually laid/spawned THIS reply (not just contractions or urge), add: <!-- [LAY_CLUTCH${tagSuffix}] -->\n`;
-            }
-        } else if (isFullTerm) {
-            const verb = preset.gestationType === 'staged' ? 'hatch' : 'be born';
-            b += `${name} is at full term — if the offspring actually ${verb} THIS reply (delivered/out, not just labor), add: <!-- [BIRTH${tagSuffix}] -->\n`;
+            b += `If ${name} actually lays/spawns the clutch THIS reply${urgency} (the ${preset.offspringLabel.toLowerCase()} come out — not just contractions or the urge), add: <!-- [LAY_CLUTCH${tagSuffix}] -->\n`;
+        } else {
+            const verb = preset.gestationType === 'staged' ? 'hatch' : 'are born';
+            b += `If the offspring actually ${verb} THIS reply${urgency} (out and separate — not just labor or contractions), add: <!-- [BIRTH${tagSuffix}] -->\n`;
         }
 
         b += `If ${name}'s pregnancy is narratively LOST this reply (miscarriage, failed clutch, abortion — an actual completed loss, not fear or discussion), add instead: <!-- [PREGNANCY_LOSS${tagSuffix}] --> (never combine with a birth/lay tag).\n`;

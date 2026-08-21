@@ -815,6 +815,15 @@ async function ensurePanelLoaded() {
     $(document).on('keydown', (e) => {
         if (e.key === 'Escape' && $('#lw_modal_overlay').hasClass('lw-open')) closePanel();
     });
+
+    // Автоматика поменяла состояние (пришёл тег от модели) — обновляем то,
+    // что сейчас на экране, чтобы не приходилось переключать вкладки руками.
+    document.addEventListener('lifeweaver:state-changed', () => {
+        if ($('#lw_modal_overlay').hasClass('lw-open')) {
+            renderUniverseTabs();
+            renderContent();
+        }
+    });
 }
 
 // ─── Настройки в дровере extensions_settings2 ───

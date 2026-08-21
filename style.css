@@ -513,6 +513,77 @@
     font-size: 0.72rem;
 }
 
+/* ── Раздел "Семейное древо" ── */
+.lw-tree {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+}
+
+.lw-tree-row {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.lw-tree-children {
+    margin-top: 6px;
+}
+
+.lw-tree-connector {
+    width: 1px;
+    height: 22px;
+    background: var(--lw-border);
+}
+
+.lw-tree-node {
+    background: var(--lw-panel-alt);
+    border: 1px solid var(--lw-border);
+    border-top: 3px solid var(--lw-card-accent, var(--lw-accent));
+    border-radius: 6px;
+    padding: 10px 16px;
+    min-width: 130px;
+    text-align: center;
+}
+
+.lw-tree-name {
+    font-family: var(--lw-font-display);
+    font-size: 0.95rem;
+}
+
+.lw-tree-tag {
+    font-family: var(--lw-font-mono);
+    font-size: 0.68rem;
+    color: var(--lw-text-dim);
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.lw-tree-sub {
+    font-size: 0.7rem;
+    color: var(--lw-text-dim);
+    margin-top: 3px;
+}
+
+.lw-tree-node-pending {
+    border-style: dashed;
+    opacity: 0.9;
+}
+
+.lw-tree-node-grown {
+    opacity: 0.55;
+}
+
+.lw-tree-empty {
+    color: var(--lw-text-dim);
+    font-size: 0.85rem;
+    font-style: italic;
+    padding: 10px 0;
+}
+
 /* ── Заглушка пустого раздела ── */
 .lw-empty {
     display: flex;

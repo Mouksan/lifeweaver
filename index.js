@@ -99,6 +99,10 @@ function renderContent() {
         renderChildSection(preset);
         return;
     }
+    if (activeSection === 'tree') {
+        renderTreeSection(preset);
+        return;
+    }
 
     const section = SECTIONS.find(s => s.id === activeSection);
     $('#lw_content').html(`
@@ -442,6 +446,83 @@ function bindChildEvents() {
         saveSettings();
         renderContent();
     });
+}
+
+// ─── Раздел "Семейное древо" ───
+function designationLabel(designation) {
+    if (designation === 'omega') return 'Омега';
+    if (designation === 'alpha') return 'Альфа';
+    return 'Бета';
+}
+
+function renderParentNode(who, preset) {
+    const data = getCharacterData(who);
+    const name = carrierDisplayName(who);
+    const tag = preset.cycleSystem === 'abo' ? `<div class="lw-tree-tag">${designationLabel(data.designation)}</div>` : '';
+    const carrierMark = data.canCarry ? `<div class="lw-tree-sub">Может выносить</div>` : '';
+    return `
+        <div class="lw-tree-node" style="--lw-card-accent: ${preset.color}">
+            <div class="lw-tree-name">${name}</div>
+            ${tag}
+            ${carrierMark}
+        </div>
+    `;
+}
+
+function renderPendingNode(who, preset) {
+    const data = getCharacterData(who);
+    const pregnancy = data.pregnancy;
+    const stageMax = currentStageMaxWeeks(preset, pregnancy);
+    const stageLabel = preset.gestationType === 'staged'
+        ? (pregnancy.stage === 'clutch' ? preset.stages.second.label : preset.stages.first.label)
+        : 'Беременность';
+    return `
+        <div class="lw-tree-node lw-tree-node-pending" style="--lw-card-accent: ${preset.color}">
+            <div class="lw-tree-name">Ожидается</div>
+            <div class="lw-tree-tag">${stageLabel} · ${pregnancy.weeks}/${stageMax} нед.</div>
+            <div class="lw-tree-sub">от ${carrierDisplayName(who)} · ${preset.offspringLabel.toLowerCase()}: ${pregnancy.offspringCount}</div>
+        </div>
+    `;
+}
+
+function renderTreeChildNode(child, grown, preset) {
+    const originPreset = UNIVERSE_PRESETS[child.universe] || preset;
+    return `
+        <div class="lw-tree-node ${grown ? 'lw-tree-node-grown' : ''}" style="--lw-card-accent: ${originPreset.color}">
+            <div class="lw-tree-name">${child.name || 'Без имени'}</div>
+            <div class="lw-tree-tag">${grown ? 'Взрослый' : `${child.ageWeeks || 0} нед.`}</div>
+        </div>
+    `;
+}
+
+function renderTreeSection(preset) {
+    const userData = getCharacterData('user');
+    const charData = getCharacterData('char');
+    const children = getChildren();
+    const grown = getGrownChildren();
+
+    const parentsHtml = renderParentNode('user', preset) + renderParentNode('char', preset);
+
+    const pendingHtml = [
+        userData.pregnancy?.isPregnant ? renderPendingNode('user', preset) : '',
+        charData.pregnancy?.isPregnant ? renderPendingNode('char', preset) : '',
+    ].join('');
+
+    const childrenHtml = children.map(c => renderTreeChildNode(c, false, preset)).join('')
+        + grown.map(c => renderTreeChildNode(c, true, preset)).join('');
+
+    const hasAnyChildren = pendingHtml || childrenHtml;
+
+    $('#lw_content').html(`
+        <h2 class="lw-content-title">Семейное древо</h2>
+        <div class="lw-tree">
+            <div class="lw-tree-row">${parentsHtml}</div>
+            <div class="lw-tree-connector"></div>
+            <div class="lw-tree-row lw-tree-children">
+                ${hasAnyChildren ? pendingHtml + childrenHtml : '<div class="lw-tree-empty">Пока никого нет</div>'}
+            </div>
+        </div>
+    `);
 }
 
 // ─── Открытие/закрытие модалки ───

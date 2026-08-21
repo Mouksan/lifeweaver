@@ -74,12 +74,11 @@ export function getPreset(universeId) {
     return UNIVERSE_PRESETS[universeId] || UNIVERSE_PRESETS[DEFAULT_UNIVERSE];
 }
 
-export function summarizePreset(universeId) {
-    const p = getPreset(universeId);
-    const cycle = p.cycleSystem === 'abo' ? 'течка/гон (ABO)' : 'без цикла';
+export function summarizePreset(preset) {
+    const cycle = preset.cycleSystem === 'abo' ? 'течка/гон (ABO)' : 'без цикла';
     let gestation;
-    if (p.gestationType === 'staged') {
-        const s1 = p.stages.first, s2 = p.stages.second;
+    if (preset.gestationType === 'staged') {
+        const s1 = preset.stages.first, s2 = preset.stages.second;
         gestation = `две фазы — ${s1.label} (${s1.weeks} нед.) → ${s2.label} (${s2.weeks} нед.)`;
     } else {
         gestation = 'обычная беременность (одна фаза)';
@@ -88,12 +87,42 @@ export function summarizePreset(universeId) {
 }
 
 // Суммарная длительность вынашивания в неделях: у staged — сумма двух фаз,
-// у live — общая настройка pregnancyDuration (дефолт 40).
+// у live — своя длительность у кастома (preset._pregnancyDuration), иначе
+// общая настройка pregnancyDuration (дефолт 40).
 export function getTotalWeeks(preset, pregnancyDuration) {
     if (preset.gestationType === 'staged') {
         return preset.stages.first.weeks + preset.stages.second.weeks;
     }
+    if (preset._pregnancyDuration) return preset._pregnancyDuration;
     return Math.max(1, parseInt(pregnancyDuration) || 40);
+}
+
+// Собирает кастомный пресет (settings.customPreset) в ту же форму, что и
+// встроенные UNIVERSE_PRESETS — чтобы весь остальной код не знал разницы.
+export function buildCustomPreset(cp) {
+    if (!cp) return UNIVERSE_PRESETS.mpreg;
+    const preset = {
+        id: 'custom',
+        label: cp.label || 'Кастом',
+        sublabel: cp.sublabel || '',
+        color: cp.color || '#5a5850',
+        cycleSystem: cp.cycleSystem === 'abo' ? 'abo' : 'none',
+        gestationType: cp.gestationType === 'staged' ? 'staged' : 'live',
+        offspringRange: {
+            min: Math.max(1, parseInt(cp.offspringRange?.min) || 1),
+            max: Math.max(1, parseInt(cp.offspringRange?.max) || 1, parseInt(cp.offspringRange?.min) || 1),
+        },
+        offspringLabel: cp.offspringLabel || 'Детей',
+    };
+    if (preset.gestationType === 'staged') {
+        preset.stages = {
+            first:  { key: 'formation', label: cp.stages?.first?.label || 'Формирование', weeks: Math.max(1, parseInt(cp.stages?.first?.weeks) || 20) },
+            second: { key: 'clutch',    label: cp.stages?.second?.label || 'Кладка и инкубация', weeks: Math.max(1, parseInt(cp.stages?.second?.weeks) || 20) },
+        };
+    } else {
+        preset._pregnancyDuration = Math.max(1, parseInt(cp.pregnancyDuration) || 40);
+    }
+    return preset;
 }
 
 // ── Розыгрыш количества потомства: не равномерный рандом по диапазону,
@@ -155,6 +184,23 @@ export const defaultSettings = {
     // Скрытая беременность — герой не знает о зачатии, пока не заметит сам
     // (Этап 9 — сама механика скрытия).
     hiddenPregnancy: true,
+    // Кастомная вселенная (5-й слот) — конструктор в разделе "Настройки".
+    // isConfigured: false — вкладка задизейблена, пока не сохранили хотя бы раз.
+    customPreset: {
+        isConfigured: false,
+        label: 'Кастом',
+        sublabel: '',
+        color: '#5a5850',
+        cycleSystem: 'none',
+        gestationType: 'live',
+        pregnancyDuration: 40,
+        stages: {
+            first: { label: 'Формирование', weeks: 20 },
+            second: { label: 'Кладка и инкубация', weeks: 20 },
+        },
+        offspringRange: { min: 1, max: 1 },
+        offspringLabel: 'Детей',
+    },
 };
 
 // Дефолт беременности одного персонажа.

@@ -2,7 +2,7 @@
 // LIFEWEAVER — точка входа
 // ═══════════════════════════════════════════
 
-import { extensionName, UNIVERSE_PRESETS, UNIVERSE_ORDER, SECTIONS, summarizePreset, getTotalWeeks, CONTRACEPTION_TYPES } from './config.js';
+import { extensionName, UNIVERSE_PRESETS, UNIVERSE_ORDER, SECTIONS, summarizePreset, getTotalWeeks, CONTRACEPTION_TYPES, buildCustomPreset } from './config.js';
 import {
     getSettings, getActiveUniverse, setActiveUniverse, resetChatIdCache,
     getCharacterData, setDesignation, setCycleDay, getCycleSettings, carrierDisplayName,
@@ -10,6 +10,7 @@ import {
     advanceToClutch, currentStageMaxWeeks,
     completeBirth, getChildren, getGrownChildren, updateChildField, archiveChild, deleteChild, restoreChild,
     setContraception, setShowNotifications, setHiddenPregnancy, setNumericSetting,
+    getCustomPresetDraft, saveCustomPreset, disableCustomPreset,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 
@@ -17,24 +18,51 @@ const extensionFolderPath = `scripts/extensions/${extensionName}`;
 
 let activeSection = 'overview';
 
+// Единая точка резолвинга пресета по id вселенной — учитывает кастом
+// (если настроен и включён), иначе безопасно откатывается на mpreg.
+// Используется везде, КРОМЕ рендера самих вкладок сверху (там нужен ещё
+// и disabled-статус кастома, см. renderUniverseTabs).
+function resolvePreset(universeId) {
+    if (universeId === 'custom') {
+        const cp = getSettings().customPreset;
+        if (cp && cp.isConfigured) return buildCustomPreset(cp);
+        return UNIVERSE_PRESETS.mpreg;
+    }
+    return UNIVERSE_PRESETS[universeId] || UNIVERSE_PRESETS.mpreg;
+}
+
 // ─── Вкладки вселенной (верхний ряд) ───
 function renderUniverseTabs() {
     const $tabs = $('#lw_universe_tabs');
     const active = getActiveUniverse();
+    const customCfg = getSettings().customPreset;
     $tabs.empty();
 
     for (const id of UNIVERSE_ORDER) {
-        const preset = UNIVERSE_PRESETS[id];
+        let preset, disabled;
+        if (id === 'custom') {
+            if (customCfg && customCfg.isConfigured) {
+                preset = buildCustomPreset(customCfg);
+                disabled = false;
+            } else {
+                preset = UNIVERSE_PRESETS.custom; // статичная заглушка: label "Кастом", disabled: true
+                disabled = true;
+            }
+        } else {
+            preset = UNIVERSE_PRESETS[id];
+            disabled = false;
+        }
+
         const isActive = id === active;
         const $tab = $(`
-            <button type="button" class="lw-utab ${isActive ? 'lw-utab-active' : ''} ${preset.disabled ? 'lw-utab-disabled' : ''}"
+            <button type="button" class="lw-utab ${isActive ? 'lw-utab-active' : ''} ${disabled ? 'lw-utab-disabled' : ''}"
                 style="--lw-utab-color: ${preset.color}" role="tab" aria-selected="${isActive}"
-                ${preset.disabled ? 'aria-disabled="true"' : ''}>
+                ${disabled ? 'aria-disabled="true"' : ''}>
                 <span class="lw-utab-label">${preset.label}</span>
                 <span class="lw-utab-sub">${preset.sublabel}</span>
             </button>
         `);
-        if (!preset.disabled) {
+        if (!disabled) {
             $tab.on('click', () => {
                 setActiveUniverse(id);
                 saveSettings();
@@ -42,20 +70,20 @@ function renderUniverseTabs() {
                 renderContent();
             });
         } else {
-            $tab.on('click', () => flashDisabledNote(preset.label));
+            $tab.on('click', () => flashDisabledNote());
         }
         $tabs.append($tab);
     }
 }
 
 let disabledNoteTimer = null;
-function flashDisabledNote(label) {
+function flashDisabledNote() {
     const $tabs = $('#lw_universe_tabs');
     $tabs.find('.lw-utab-note').remove();
-    const $note = $(`<div class="lw-utab-note">«${label}» — конструктор своих вселенных появится позже</div>`);
+    const $note = $(`<div class="lw-utab-note">Настрой её в разделе «Настройки» → «Кастомная вселенная»</div>`);
     $tabs.append($note);
     clearTimeout(disabledNoteTimer);
-    disabledNoteTimer = setTimeout(() => $note.fadeOut(200, () => $note.remove()), 2200);
+    disabledNoteTimer = setTimeout(() => $note.fadeOut(200, () => $note.remove()), 2600);
 }
 
 // ─── Сайдбар с разделами ───
@@ -82,10 +110,10 @@ function renderSidebar() {
 // ─── Контент активного раздела ───
 function renderContent() {
     const universeId = getActiveUniverse();
-    const preset = UNIVERSE_PRESETS[universeId];
+    const preset = resolvePreset(universeId);
 
     if (activeSection === 'overview') {
-        renderOverviewSection(preset, universeId);
+        renderOverviewSection(preset);
         return;
     }
     if (activeSection === 'cycle') {
@@ -119,13 +147,13 @@ function renderContent() {
     `);
 }
 
-function renderOverviewSection(preset, universeId) {
+function renderOverviewSection(preset) {
     $('#lw_content').html(`
         <h2 class="lw-content-title">Обзор</h2>
         <div class="lw-card" style="--lw-card-accent: ${preset.color}">
             <div class="lw-card-label">Активная вселенная в этом чате</div>
             <div class="lw-card-value">${preset.label} <span class="lw-dim">(${preset.sublabel})</span></div>
-            <div class="lw-card-sub">${summarizePreset(universeId)}</div>
+            <div class="lw-card-sub">${summarizePreset(preset)}</div>
         </div>
         <p class="lw-placeholder-note">Остальные карточки обзора (здоровье, цикл, беременность одной строкой) соберутся по мере того, как наполнятся сами разделы.</p>
     `);
@@ -405,7 +433,7 @@ function renderGrownRow(child) {
 
 function renderChildCard(child, preset) {
     const parentName = carrierDisplayName(child.parentWho);
-    const originPreset = UNIVERSE_PRESETS[child.universe] || preset;
+    const originPreset = resolvePreset(child.universe);
     return `
         <div class="lw-card lw-child-card" style="--lw-card-accent: ${originPreset.color}" data-id="${child.id}">
             <input type="text" class="lw-input lw-child-name" data-id="${child.id}" placeholder="Пока без имени" value="${child.name || ''}">
@@ -491,7 +519,7 @@ function renderPendingNode(who, preset) {
 }
 
 function renderTreeChildNode(child, grown, preset) {
-    const originPreset = UNIVERSE_PRESETS[child.universe] || preset;
+    const originPreset = resolvePreset(child.universe);
     return `
         <div class="lw-tree-node ${grown ? 'lw-tree-node-grown' : ''}" style="--lw-card-accent: ${originPreset.color}">
             <div class="lw-tree-name">${child.name || 'Без имени'}</div>
@@ -547,6 +575,7 @@ function renderContraceptionCard(who) {
 
 function renderSettingsSection() {
     const s = getSettings();
+    customDraft = getCustomPresetDraft();
 
     $('#lw_content').html(`
         <h2 class="lw-content-title">Настройки</h2>
@@ -593,9 +622,134 @@ function renderSettingsSection() {
             </div>
             <p class="lw-placeholder-note">Фазы драконов/мерфолка (формирование → кладка/инкубация) настраиваются отдельно, в конструкторе кастомной вселенной.</p>
         </div>
+
+        <div class="lw-settings-group">
+            <h3 class="lw-content-subtitle">Кастомная вселенная</h3>
+            ${renderCustomPresetForm(customDraft)}
+        </div>
     `);
 
     bindSettingsEvents();
+}
+
+// ── Конструктор кастомной вселенной (5-й слот) ──
+let customDraft = null;
+
+function renderCustomGestationFields(draft) {
+    if (draft.gestationType === 'staged') {
+        return `
+            <div class="lw-custom-grid">
+                <label>Название фазы 1
+                    <input type="text" class="lw-input" id="lw_custom_stage1_label" value="${draft.stages?.first?.label ?? 'Формирование'}">
+                </label>
+                <label>Недель (фаза 1)
+                    <input type="number" class="lw-input" id="lw_custom_stage1_weeks" min="1" value="${draft.stages?.first?.weeks ?? 20}">
+                </label>
+                <label>Название фазы 2
+                    <input type="text" class="lw-input" id="lw_custom_stage2_label" value="${draft.stages?.second?.label ?? 'Кладка и инкубация'}">
+                </label>
+                <label>Недель (фаза 2)
+                    <input type="number" class="lw-input" id="lw_custom_stage2_weeks" min="1" value="${draft.stages?.second?.weeks ?? 20}">
+                </label>
+            </div>
+        `;
+    }
+    return `
+        <div class="lw-custom-grid">
+            <label>Длительность беременности (нед.)
+                <input type="number" class="lw-input" id="lw_custom_pregnancyDuration" min="1" value="${draft.pregnancyDuration ?? 40}">
+            </label>
+        </div>
+    `;
+}
+
+function renderCustomPresetForm(draft) {
+    return `
+        <p class="lw-placeholder-note">${draft.isConfigured ? 'Активна как 5-я вкладка вверху.' : 'Заполни поля и сохрани, чтобы включить 5-ю вкладку вселенной.'}</p>
+
+        <div class="lw-custom-grid">
+            <label>Название
+                <input type="text" class="lw-input" id="lw_custom_label" value="${draft.label || ''}" placeholder="Например: Осьминожки">
+            </label>
+            <label>Подпись (короткая)
+                <input type="text" class="lw-input" id="lw_custom_sublabel" value="${draft.sublabel || ''}" placeholder="Например: Сперматофор">
+            </label>
+            <label>Цвет метки
+                <input type="color" class="lw-input lw-color-input" id="lw_custom_color" value="${draft.color || '#5a5850'}">
+            </label>
+            <label>Система цикла
+                <select class="lw-select" id="lw_custom_cycleSystem">
+                    <option value="none" ${draft.cycleSystem === 'none' ? 'selected' : ''}>Без цикла (mpreg)</option>
+                    <option value="abo" ${draft.cycleSystem === 'abo' ? 'selected' : ''}>Течка/гон (ABO)</option>
+                </select>
+            </label>
+            <label>Тип вынашивания
+                <select class="lw-select" id="lw_custom_gestationType">
+                    <option value="live" ${draft.gestationType === 'live' ? 'selected' : ''}>Обычная беременность (одна фаза)</option>
+                    <option value="staged" ${draft.gestationType === 'staged' ? 'selected' : ''}>Две фазы (формирование → кладка/инкубация)</option>
+                </select>
+            </label>
+        </div>
+
+        <div id="lw_custom_gestation_fields">${renderCustomGestationFields(draft)}</div>
+
+        <div class="lw-custom-grid">
+            <label>Мин. потомства
+                <input type="number" class="lw-input" id="lw_custom_offspring_min" min="1" value="${draft.offspringRange?.min ?? 1}">
+            </label>
+            <label>Макс. потомства
+                <input type="number" class="lw-input" id="lw_custom_offspring_max" min="1" value="${draft.offspringRange?.max ?? 1}">
+            </label>
+            <label>Название потомства в UI
+                <input type="text" class="lw-input" id="lw_custom_offspring_label" value="${draft.offspringLabel || ''}" placeholder="Например: Сперматофоров">
+            </label>
+        </div>
+
+        <div class="lw-child-actions" style="margin-top: 12px;">
+            <button type="button" class="lw-btn" id="lw_custom_save">Сохранить и включить</button>
+            ${draft.isConfigured ? `<button type="button" class="lw-btn lw-btn-muted" id="lw_custom_disable">Выключить кастом</button>` : ''}
+        </div>
+    `;
+}
+
+function readDraftFromForm() {
+    customDraft.label = $('#lw_custom_label').val();
+    customDraft.sublabel = $('#lw_custom_sublabel').val();
+    customDraft.color = $('#lw_custom_color').val();
+    customDraft.cycleSystem = $('#lw_custom_cycleSystem').val();
+    customDraft.gestationType = $('#lw_custom_gestationType').val();
+    if (customDraft.gestationType === 'staged') {
+        customDraft.stages = {
+            first: { label: $('#lw_custom_stage1_label').val(), weeks: $('#lw_custom_stage1_weeks').val() },
+            second: { label: $('#lw_custom_stage2_label').val(), weeks: $('#lw_custom_stage2_weeks').val() },
+        };
+    } else {
+        customDraft.pregnancyDuration = $('#lw_custom_pregnancyDuration').val();
+    }
+    customDraft.offspringRange = { min: $('#lw_custom_offspring_min').val(), max: $('#lw_custom_offspring_max').val() };
+    customDraft.offspringLabel = $('#lw_custom_offspring_label').val();
+}
+
+function bindCustomPresetEvents() {
+    $('#lw_custom_gestationType').on('change', function () {
+        readDraftFromForm();
+        $('#lw_custom_gestation_fields').html(renderCustomGestationFields(customDraft));
+    });
+    $('#lw_custom_save').on('click', function () {
+        readDraftFromForm();
+        saveCustomPreset(customDraft);
+        saveSettings();
+        customDraft = getCustomPresetDraft();
+        renderUniverseTabs();
+        renderSettingsSection();
+    });
+    $('#lw_custom_disable').on('click', function () {
+        disableCustomPreset();
+        saveSettings();
+        customDraft = getCustomPresetDraft();
+        renderUniverseTabs();
+        renderContent();
+    });
 }
 
 function bindSettingsEvents() {
@@ -626,6 +780,8 @@ function bindSettingsEvents() {
             saveSettings();
         });
     }
+
+    bindCustomPresetEvents();
 }
 
 // ─── Открытие/закрытие модалки ───

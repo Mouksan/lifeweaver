@@ -9,7 +9,7 @@
 // перезагрузку.
 
 import { extension_settings } from '../../../extensions.js';
-import { extensionName, defaultSettings, defaultChatData, defaultCharacterData, defaultPregnancyData, getPreset, getTotalWeeks, rollOffspringCount, CONTRACEPTION_TYPES } from './config.js';
+import { extensionName, defaultSettings, defaultChatData, defaultCharacterData, defaultPregnancyData, getPreset, getTotalWeeks, rollOffspringCount, CONTRACEPTION_TYPES, buildCustomPreset } from './config.js';
 
 function cloneDefault(value) {
     return (value && typeof value === 'object') ? structuredClone(value) : value;
@@ -146,7 +146,13 @@ export function setCanCarry(who, value) {
 }
 
 function activePreset() {
-    return getPreset(getActiveUniverse());
+    const universeId = getActiveUniverse();
+    if (universeId === 'custom') {
+        const cp = getSettings().customPreset;
+        if (cp && cp.isConfigured) return buildCustomPreset(cp);
+        return getPreset('mpreg'); // защитный фолбэк — сюда не должны попасть, если UI не даёт выбрать невключённый кастом
+    }
+    return getPreset(universeId);
 }
 
 export function startPregnancy(who) {
@@ -295,4 +301,46 @@ export function setNumericSetting(key, value, min = 1) {
     const n = Math.max(min, parseInt(value) || s[key] || min);
     s[key] = n;
     return n;
+}
+
+// ── Кастомная вселенная (5-й слот) ──
+export function getCustomPresetDraft() {
+    return cloneDefault(getSettings().customPreset);
+}
+
+// Сохраняет черновик из формы конструктора как активный кастомный пресет.
+// Валидация чисел (min 1 и т.п.) — внутри buildCustomPreset при чтении,
+// тут просто нормализуем структуру перед записью.
+export function saveCustomPreset(draft) {
+    const s = getSettings();
+    s.customPreset = {
+        isConfigured: true,
+        label: (draft.label || 'Кастом').trim() || 'Кастом',
+        sublabel: (draft.sublabel || '').trim(),
+        color: draft.color || '#5a5850',
+        cycleSystem: draft.cycleSystem === 'abo' ? 'abo' : 'none',
+        gestationType: draft.gestationType === 'staged' ? 'staged' : 'live',
+        pregnancyDuration: Math.max(1, parseInt(draft.pregnancyDuration) || 40),
+        stages: {
+            first: {
+                label: (draft.stages?.first?.label || 'Формирование').trim() || 'Формирование',
+                weeks: Math.max(1, parseInt(draft.stages?.first?.weeks) || 20),
+            },
+            second: {
+                label: (draft.stages?.second?.label || 'Кладка и инкубация').trim() || 'Кладка и инкубация',
+                weeks: Math.max(1, parseInt(draft.stages?.second?.weeks) || 20),
+            },
+        },
+        offspringRange: {
+            min: Math.max(1, parseInt(draft.offspringRange?.min) || 1),
+            max: Math.max(1, parseInt(draft.offspringRange?.max) || 1, parseInt(draft.offspringRange?.min) || 1),
+        },
+        offspringLabel: (draft.offspringLabel || 'Детей').trim() || 'Детей',
+    };
+}
+
+export function disableCustomPreset() {
+    const s = getSettings();
+    if (s.customPreset) s.customPreset.isConfigured = false;
+    if (getActiveUniverse() === 'custom') setActiveUniverse('mpreg');
 }

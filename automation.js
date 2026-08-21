@@ -75,6 +75,7 @@ function handleMessageAt(index) {
         }
         cleanMessageTags(msg);
         saveSettingsDebounced();
+        try { ctx.saveChat?.(); } catch (e) { /* ignore */ }
     } catch (e) {
         console.error('[Lifeweaver] handleMessageAt error:', e);
     }

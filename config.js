@@ -211,6 +211,10 @@ export const defaultPregnancyData = {
     offspringCount: 1,
     // Знает ли персонаж о беременности (актуально только если settings.hiddenPregnancy = true).
     pregnancyKnown: false,
+    // Пол потомства: массив 'M'|'F'|'unknown' длиной offspringCount.
+    // Разыгрывается при зачатии, но СКРЫТ до раскрытия (тег SEX_REVEAL или вручную).
+    offspringSex: [],
+    sexRevealed: false,
     // Остаток дней < 7 между автоматическими продвижениями времени — чтобы
     // не терять точность, накапливая дробные недели от DAYS_PASSED тегов.
     _dayRemainder: 0,

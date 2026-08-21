@@ -31,7 +31,7 @@
 //  - Нет SEX_REVEAL/BABY_TRAITS пока — вернутся отдельным заходом вместе
 //    с полями пола/черт в данных ребёнка.
 
-const KNOWN_TAGS = ['DAYS_PASSED', 'CONCEPTION_CHECK', 'LAY_CLUTCH', 'BIRTH', 'MISCARRIAGE', 'ABORTION', 'PREGNANCY_KNOWN'];
+const KNOWN_TAGS = ['DAYS_PASSED', 'CONCEPTION_CHECK', 'LAY_CLUTCH', 'BIRTH', 'MISCARRIAGE', 'ABORTION', 'PREGNANCY_KNOWN', 'SEX_REVEAL', 'BABY_TRAITS'];
 const TAG_NAME_RE = new RegExp(`\\[(${KNOWN_TAGS.join('|')})(:CHAR)?(?:[:\\s]+(\\d+))?\\]`, 'i');
 // Безопасный поиск ОДНОГО HTML-комментария: нежадно до первого "-->",
 // поэтому не может перепрыгнуть через "-->" чужого комментария.
@@ -101,6 +101,57 @@ export function stripThink(text) {
 const MISCARRIAGE_CONTEXT_RE = /(выкидыш|miscarr|кровотеч|кров(?:ь|и|ью)|потер(?:я|ял|яла|яли)|схватк|спазм|боль|скорая|больниц|врач|плод|срыв|тянущ|замерш|погиб|мертв|мёртв|не выжил|раздавл|разбит|треснул|остыл|кладк|икр|яйц|гнезд)/i;
 const ABORTION_CONTEXT_RE = /(аборт|abortion|прерыв|клиник|процедур|вакуум|таблетк|гинеколог|операц|избавит|уничтож|раздавил|разбил|выброс|утопил)/i;
 
+// ─── BABY_TRAITS: JSON с данными новорождённых от модели ───
+// Портировано у вдохновителя вместе с их «щадящим» парсером: модели любят
+// оставлять висячие запятые и одинарные кавычки, из-за чего строгий JSON.parse
+// падает и данные теряются. Тег живёт вне общей схемы KNOWN_TAGS, потому что
+// несёт полезную нагрузку в фигурных скобках, а не просто флаг.
+const BABY_TRAITS_RE = /<!--\s*\[BABY_TRAITS(?::CHAR)?:\s*(\{[\s\S]*?\})\s*\]\s*-->/i;
+const BABY_TRAITS_CHAR_RE = /<!--\s*\[BABY_TRAITS:CHAR:\s*(\{[\s\S]*?\})\s*\]\s*-->/i;
+
+function safeParseJson(raw) {
+    try {
+        return JSON.parse(raw);
+    } catch (e) {
+        try {
+            const fixed = raw.replace(/,\s*([}\]])/g, '$1').replace(/'/g, '"');
+            return JSON.parse(fixed);
+        } catch (e2) {
+            return null;
+        }
+    }
+}
+
+export function scanBabyTraits(text, forChar = false) {
+    if (!text) return null;
+    const m = text.match(forChar ? BABY_TRAITS_CHAR_RE : BABY_TRAITS_RE);
+    if (!m) return null;
+    // Для юзерского варианта не хватаем :CHAR-версию
+    if (!forChar && /\[BABY_TRAITS:CHAR/i.test(m[0])) return null;
+    const json = safeParseJson(m[1]);
+    if (!json) return null;
+    if (Array.isArray(json.babies)) return json;
+    if (Array.isArray(json)) return { babies: json };
+    return { babies: [json] };
+}
+
+// Полы, названные моделью в теге SEX_REVEAL — например [SEX_REVEAL:M,F]
+const SEX_REVEAL_VALUES_RE = /\[SEX_REVEAL(?::CHAR)?[:\s]+([MFмждMFД,\s]+)\]/i;
+
+export function extractRevealedSexes(text) {
+    if (!text) return null;
+    const m = text.match(SEX_REVEAL_VALUES_RE);
+    if (!m) return null;
+    const parts = m[1].split(/[,\s]+/).filter(Boolean);
+    const sexes = parts.map(p => {
+        const c = p.trim().toUpperCase();
+        if (c === 'M' || c === 'М') return 'M';
+        if (c === 'F' || c === 'Ж' || c === 'D' || c === 'Д') return 'F';
+        return null;
+    }).filter(Boolean);
+    return sexes.length > 0 ? sexes : null;
+}
+
 // Похоже ли на реальное семяизвержение ВНУТРЬ — как у вдохновителя. Модель
 // иногда вешает тег по инерции (сцена с игрушкой, чужой секс, тег просто
 // мелькал в контексте) — слов "секс"/"член" недостаточно, они есть в любой сцене.
@@ -157,12 +208,18 @@ export function scanMessage(text) {
         charAbortion: has('ABORTION', true) && abortionOk,
         known: has('PREGNANCY_KNOWN', false),
         charKnown: has('PREGNANCY_KNOWN', true),
+        sexRevealed: has('SEX_REVEAL', false),
+        charSexRevealed: has('SEX_REVEAL', true),
+        revealedSexes: extractRevealedSexes(text),
+        babyTraits: scanBabyTraits(text, false),
+        charBabyTraits: scanBabyTraits(text, true),
         daysPassed: scanDaysPassed(text),
     };
 
     const anyEvent = result.conception || result.charConception || result.layClutch || result.charLayClutch
         || result.birth || result.charBirth || result.miscarriage || result.charMiscarriage
-        || result.abortion || result.charAbortion || result.known || result.charKnown;
+        || result.abortion || result.charAbortion || result.known || result.charKnown
+        || result.sexRevealed || result.charSexRevealed;
     if (!anyEvent && result.daysPassed === 0) return null;
 
     return result;

@@ -25,7 +25,7 @@ import { eventSource, event_types, saveSettingsDebounced } from '../../../../scr
 import {
     getSettings, getChatData, getCurrentChatId,
     advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
-    applyMiscarriage, applyAbortion, setPregnancyKnown,
+    applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex,
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
@@ -163,8 +163,14 @@ function applyScanResult(result) {
         if (abortionTag) { applyAbortion(who); continue; }
         if (miscarriageTag) { applyMiscarriage(who); continue; }
         if (conceptionTag) applyConception(who);
+        // Раскрытие пола — до родов, чтобы дети создались с уже открытым полом
+        const sexTag = isChar ? result.charSexRevealed : result.sexRevealed;
+        if (sexTag) revealOffspringSex(who, result.revealedSexes);
         if (layTag) applyLayClutch(who);
-        if (birthTag) applyBirth(who);
+        if (birthTag) {
+            const traits = isChar ? result.charBabyTraits : result.babyTraits;
+            applyBirth(who, traits);
+        }
         if (knownTag) setPregnancyKnown(who, true);
     }
 }

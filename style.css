@@ -517,6 +517,58 @@
     font-size: 0.75rem;
 }
 
+/* ── Расширенная карточка ребёнка ── */
+.lw-child-badges {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.lw-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--lw-border);
+    background: rgba(255, 255, 255, 0.04);
+    font-family: var(--lw-font-mono);
+    font-size: 0.7rem;
+    color: var(--lw-text-dim);
+}
+
+.lw-child-sex {
+    padding: 3px 6px;
+    font-size: 0.72rem;
+}
+
+.lw-child-traits {
+    font-size: 0.76rem;
+    line-height: 1.5;
+}
+
+.lw-child-care {
+    font-size: 0.73rem;
+    color: var(--lw-text-dim);
+    line-height: 1.6;
+    padding: 8px 10px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.lw-child-milestones {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.lw-sex-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
 .lw-child-notes {
     width: 100%;
     resize: vertical;

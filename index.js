@@ -11,9 +11,10 @@ import {
     completeBirth, getChildren, getGrownChildren, updateChildField, archiveChild, deleteChild, restoreChild,
     setContraception, setShowNotifications, setHiddenPregnancy, setNumericSetting,
     getCustomPresetDraft, saveCustomPreset, disableCustomPreset, getRpDay, setRpDay,
-    applyMiscarriage, applyAbortion, getLastLoss, clearLastLoss,
+    applyMiscarriage, applyAbortion, getLastLoss, clearLastLoss, revealOffspringSex,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
+import { childAgeDays, getGrowthStage, getCareNorms, getMilestoneProgress, formatAge, sexLabel } from './baby-care.js';
 import { initAutomation, refreshRegenSnapshot, clearRegenState } from './automation.js';
 import { updatePromptInjection } from './prompts.js';
 
@@ -358,6 +359,11 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
 
     const weeksLabel = preset.gestationType === 'staged' ? 'Неделя (в этой фазе):' : 'Неделя:';
 
+    // Пол потомства: скрыт до раскрытия (тег SEX_REVEAL или кнопка)
+    const sexHtml = pregnancy.sexRevealed
+        ? `<div class="lw-sex-row">${(pregnancy.offspringSex || []).map(s => `<span class="lw-badge">${sexLabel(s)}</span>`).join('')}</div>`
+        : `<button type="button" class="lw-btn lw-btn-muted lw-reveal-sex" data-who="${who}">Узнать пол</button>`;
+
     return `
         ${barsHtml}
         <div class="lw-day-control">
@@ -368,6 +374,7 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
             <label>${preset.offspringLabel}:</label>
             <input type="number" class="lw-input lw-offspring-input" data-who="${who}" min="${preset.offspringRange.min}" max="${preset.offspringRange.max}" value="${pregnancy.offspringCount}">
         </div>
+        ${sexHtml}
         ${actionsHtml}
     `;
 }
@@ -408,6 +415,11 @@ function bindPregnancyEvents() {
     $('.lw-weeks-input').on('change', function () {
         const who = $(this).data('who');
         setPregnancyWeeks(who, $(this).val());
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-reveal-sex').on('click', function () {
+        revealOffspringSex($(this).data('who'));
         saveSettings();
         renderContent();
     });
@@ -484,15 +496,47 @@ function renderGrownRow(child) {
 function renderChildCard(child, preset) {
     const parentName = carrierDisplayName(child.parentWho);
     const originPreset = resolvePreset(child.universe);
+    const ageDays = childAgeDays(child);
+    const stage = getGrowthStage(ageDays);
+    const norms = getCareNorms(ageDays, child);
+    const progress = getMilestoneProgress(child);
+
+    const traitsHtml = (child.personality?.length || child.appearance?.length) ? `
+        <div class="lw-child-traits">
+            ${child.personality?.length ? `<div><span class="lw-dim">Характер:</span> ${child.personality.join(', ')}</div>` : ''}
+            ${child.appearance?.length ? `<div><span class="lw-dim">Внешность:</span> ${child.appearance.join(', ')}</div>` : ''}
+        </div>
+    ` : '';
+
+    const careBits = [norms.feeding, norms.sleep];
+    if (ageDays < 1095) careBits.push(norms.diaper);
+    if (norms.teething) careBits.push(`🦷 ${norms.teething}`);
+    if (norms.colic) careBits.push('😖 колики');
+
     return `
         <div class="lw-card lw-child-card" style="--lw-card-accent: ${originPreset.color}" data-id="${child.id}">
             <input type="text" class="lw-input lw-child-name" data-id="${child.id}" placeholder="Пока без имени" value="${child.name || ''}">
-            <div class="lw-dim lw-child-origin">От: ${parentName} · ${originPreset.label}</div>
+            <div class="lw-child-badges">
+                ${stage ? `<span class="lw-badge"><i class="fa-solid ${stage.icon}"></i> ${stage.label}</span>` : ''}
+                <span class="lw-badge">${formatAge(ageDays)}</span>
+                <select class="lw-select lw-child-sex" data-id="${child.id}">
+                    <option value="unknown" ${child.sex === 'unknown' ? 'selected' : ''}>пол неизвестен</option>
+                    <option value="M" ${child.sex === 'M' ? 'selected' : ''}>мальчик</option>
+                    <option value="F" ${child.sex === 'F' ? 'selected' : ''}>девочка</option>
+                </select>
+            </div>
+            <div class="lw-dim lw-child-origin">От: ${parentName} · ${originPreset.label}${child.fatherName ? ` · отец: ${child.fatherName}` : ''}</div>
+            ${traitsHtml}
+            <div class="lw-child-care">${careBits.filter(Boolean).map(b => `<div>• ${b}</div>`).join('')}</div>
+            <div class="lw-child-milestones">
+                <div class="lw-stage-label">Вехи: ${progress.reached.length}/${progress.total}${progress.next ? ` · далее: ${progress.next.label}` : ''}</div>
+                <div class="lw-bar"><div class="lw-bar-fill" style="width:${(progress.reached.length / progress.total) * 100}%"></div></div>
+            </div>
             <div class="lw-day-control">
                 <label>Возраст (нед.):</label>
                 <input type="number" class="lw-input lw-child-age" data-id="${child.id}" min="0" value="${child.ageWeeks || 0}">
             </div>
-            <textarea class="lw-input lw-child-notes" data-id="${child.id}" rows="2" placeholder="Заметки, вехи развития...">${child.notes || ''}</textarea>
+            <textarea class="lw-input lw-child-notes" data-id="${child.id}" rows="2" placeholder="Заметки...">${child.notes || ''}</textarea>
             <div class="lw-child-actions">
                 <button type="button" class="lw-btn lw-btn-muted lw-archive-child" data-id="${child.id}">Архивировать (вырос)</button>
                 <button type="button" class="lw-btn lw-btn-muted lw-delete-child" data-id="${child.id}">Удалить</button>
@@ -509,6 +553,11 @@ function bindChildEvents() {
     $('.lw-child-age').on('change', function () {
         updateChildField($(this).data('id'), 'ageWeeks', Math.max(0, parseInt($(this).val()) || 0));
         saveSettings();
+    });
+    $('.lw-child-sex').on('change', function () {
+        updateChildField($(this).data('id'), 'sex', $(this).val());
+        saveSettings();
+        renderContent();
     });
     $('.lw-child-notes').on('change', function () {
         updateChildField($(this).data('id'), 'notes', $(this).val());

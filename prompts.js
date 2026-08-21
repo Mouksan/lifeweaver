@@ -24,8 +24,9 @@
 
 import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { extensionName, CONTRACEPTION_TYPES } from './config.js';
-import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss } from './state.js';
+import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
+import { childAgeDays, getGrowthStage, getCareNorms, formatAge, sexLabel } from './baby-care.js';
 
 function designationLabelEn(d) {
     if (d === 'omega') return 'OMEGA';
@@ -117,11 +118,18 @@ function characterTagBlock(who, preset) {
         const nearTerm = pregnancy.weeks >= Math.floor(stageMax * 0.85);
         const urgency = nearTerm ? ' — DUE NOW, this is expected any moment' : '';
 
+        // Раскрытие пола — пока не раскрыт
+        if (!pregnancy.sexRevealed) {
+            b += `If the sex of the offspring is definitively revealed THIS reply (scan, healer, magic, hatching), add: <!-- [SEX_REVEAL${tagSuffix}:M] --> — list one letter per offspring, M or F, comma-separated (${pregnancy.offspringCount} total).\n`;
+        }
+
         if (preset.gestationType === 'staged' && pregnancy.stage === 'formation') {
             b += `If ${name} actually lays/spawns the clutch THIS reply${urgency} (the ${preset.offspringLabel.toLowerCase()} come out — not just contractions or the urge), add: <!-- [LAY_CLUTCH${tagSuffix}] -->\n`;
         } else {
             const verb = preset.gestationType === 'staged' ? 'hatch' : 'are born';
             b += `If the offspring actually ${verb} THIS reply${urgency} (out and separate — not just labor or contractions), add: <!-- [BIRTH${tagSuffix}] -->\n`;
+            b += `Together with the birth tag, add this one describing the newborn(s) (values in Russian; "name" empty if not named yet; ${pregnancy.offspringCount} entr${pregnancy.offspringCount === 1 ? 'y' : 'ies'}):\n`;
+            b += `<!-- [BABY_TRAITS${tagSuffix}:{"babies":[{"name":"","fatherName":"","personality":["...","..."],"appearance":["...","...","..."]}]}] -->\n`;
         }
 
         // Прерывание: формулировки зависят от стадии — на инкубации теряют
@@ -144,6 +152,41 @@ function characterTagBlock(who, preset) {
     return b;
 }
 
+// ─── Контекст: живые дети (возраст, стадия, что сейчас актуально) ───
+function childrenContext(preset) {
+    const children = getChildren();
+    if (children.length === 0) return '';
+
+    let b = `\nChildren currently in the family (${children.length}):\n`;
+    for (const child of children) {
+        const ageDays = childAgeDays(child);
+        const stage = getGrowthStage(ageDays);
+        const norms = getCareNorms(ageDays, child);
+        const who = child.parentWho === 'char' ? '{{char}}' : '{{user}}';
+
+        const bits = [];
+        bits.push(`${formatAge(ageDays)}`);
+        if (stage) bits.push(stage.label);
+        if (child.sex && child.sex !== 'unknown') bits.push(sexLabel(child.sex));
+        const name = child.name || 'unnamed';
+        b += `• ${name} (born to ${who}): ${bits.join(', ')}.\n`;
+
+        if (child.personality?.length) b += `  personality: ${child.personality.join(', ')}.\n`;
+        if (child.appearance?.length) b += `  looks: ${child.appearance.join(', ')}.\n`;
+
+        const care = [];
+        care.push(norms.feeding);
+        care.push(norms.sleep);
+        if (ageDays < 1095) care.push(norms.diaper);
+        if (norms.teething) care.push(norms.teething);
+        if (norms.colic) care.push('колики — вечерний плач без причины');
+        b += `  age-appropriate right now: ${care.filter(Boolean).join('; ')}.\n`;
+        if (norms.upcoming) b += `  may soon: ${norms.upcoming}.\n`;
+    }
+    b += `Keep each child's behaviour and abilities consistent with the age above — a newborn cannot walk or talk.\n`;
+    return b;
+}
+
 export function buildPrompt() {
     const s = getSettings();
     if (!s.isEnabled) return '';
@@ -155,6 +198,7 @@ export function buildPrompt() {
     prompt += universeContext(preset);
     prompt += characterStatusContext('user', preset);
     prompt += characterStatusContext('char', preset);
+    prompt += childrenContext(preset);
 
     // ── Реальные теги, которые нужно ПОСТАВИТЬ ──
     prompt += `\n=== REQUIRED TAGS FOR THIS REPLY ===\n`;

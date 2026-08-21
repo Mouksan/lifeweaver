@@ -160,7 +160,32 @@ export function startPregnancy(who) {
     const range = preset.offspringRange || { min: 1, max: 1 };
     const count = rollOffspringCount(range);
     const character = getCharacterData(who);
-    character.pregnancy = { isPregnant: true, weeks: 0, stage: 'formation', offspringCount: count };
+    // Пол разыгрывается сразу, но остаётся скрытым до раскрытия — иначе
+    // модель не сможет «узнать» его на УЗИ, он будет меняться каждый раз.
+    const offspringSex = [];
+    for (let i = 0; i < count; i++) offspringSex.push(Math.random() < 0.5 ? 'M' : 'F');
+    character.pregnancy = {
+        ...cloneDefault(defaultPregnancyData),
+        isPregnant: true,
+        offspringCount: count,
+        offspringSex,
+    };
+}
+
+// Раскрытие пола (тег SEX_REVEAL или вручную). Если модель назвала конкретные
+// полы — верим ей и перезаписываем разыгранное, иначе просто открываем своё.
+export function revealOffspringSex(who, sexes = null) {
+    const character = getCharacterData(who);
+    const pregnancy = character.pregnancy;
+    if (!pregnancy?.isPregnant) return false;
+    if (Array.isArray(sexes) && sexes.length > 0) {
+        const need = pregnancy.offspringCount || 1;
+        const next = [];
+        for (let i = 0; i < need; i++) next.push(sexes[i] || sexes[sexes.length - 1]);
+        pregnancy.offspringSex = next;
+    }
+    pregnancy.sexRevealed = true;
+    return true;
 }
 
 export function endPregnancy(who) {
@@ -228,7 +253,8 @@ function makeChildId() {
 
 // Роды/кладка: переносит текущую беременность носителя `who` в список детей
 // как N отдельных записей (N = offspringCount), затем сбрасывает беременность.
-export function completeBirth(who) {
+// traits — необязательные данные от модели (BABY_TRAITS): имя, характер, внешность.
+export function completeBirth(who, traits = null) {
     const preset = getActivePreset();
     const character = getCharacterData(who);
     const pregnancy = character.pregnancy;
@@ -236,13 +262,21 @@ export function completeBirth(who) {
 
     const children = getChildren();
     const created = [];
+    const traitList = Array.isArray(traits?.babies) ? traits.babies : [];
+
     for (let i = 0; i < pregnancy.offspringCount; i++) {
+        const t = traitList[i] || {};
         const child = {
             id: makeChildId(),
-            name: '',
+            name: (t.name || '').trim(),
+            sex: pregnancy.offspringSex?.[i] || 'unknown',
             ageWeeks: 0,
             parentWho: who,
             universe: preset.id,
+            fatherName: (t.fatherName || '').trim(),
+            personality: Array.isArray(t.personality) ? t.personality.slice(0, 4) : [],
+            appearance: Array.isArray(t.appearance) ? t.appearance.slice(0, 4) : [],
+            milestonesSeen: [],
             notes: '',
         };
         children.push(child);
@@ -462,12 +496,12 @@ export function applyLayClutch(who) {
 // вышло, значит вышло, независимо от срока (преждевременные роды, ускоренное
 // РП, ручная беременность на нестандартном сроке). Философия вдохновителя:
 // расширение должно ловить роды независимо от срока.
-export function applyBirth(who) {
+export function applyBirth(who, traits = null) {
     const character = getCharacterData(who);
     const pregnancy = character.pregnancy;
     if (!pregnancy?.isPregnant) return null;
     if (isBlocked('birth', who)) return null;
-    return completeBirth(who);
+    return completeBirth(who, traits);
 }
 
 // ── Прерывание беременности (выкидыш / аборт / ручной сброс) ──

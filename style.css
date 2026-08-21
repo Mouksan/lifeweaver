@@ -486,10 +486,31 @@
 }
 
 .lw-grown-list {
-    margin: 0;
-    padding-left: 18px;
-    color: var(--lw-text-dim);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.lw-grown-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--lw-border);
     font-size: 0.85rem;
+    color: var(--lw-text-dim);
+}
+
+.lw-grown-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.lw-grown-actions .lw-btn {
+    padding: 4px 9px;
+    font-size: 0.72rem;
 }
 
 /* ── Заглушка пустого раздела ── */

@@ -7,7 +7,8 @@ import {
     getSettings, getActiveUniverse, setActiveUniverse, resetChatIdCache,
     getCharacterData, setDesignation, setCycleDay, getCycleSettings, carrierDisplayName,
     setCanCarry, startPregnancy, endPregnancy, setPregnancyWeeks, setOffspringCount,
-    completeBirth, getChildren, getGrownChildren, updateChildField, archiveChild, deleteChild,
+    advanceToClutch, currentStageMaxWeeks,
+    completeBirth, getChildren, getGrownChildren, updateChildField, archiveChild, deleteChild, restoreChild,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 
@@ -237,10 +238,13 @@ function renderPregnancyCard(who, preset, settings) {
 
 function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
     let barsHtml;
+    const stageMax = currentStageMaxWeeks(preset, pregnancy);
+    const isStageFullTerm = pregnancy.weeks >= stageMax;
+
     if (preset.gestationType === 'staged') {
         const s1 = preset.stages.first, s2 = preset.stages.second;
-        const w1 = Math.min(pregnancy.weeks, s1.weeks);
-        const w2 = Math.max(0, Math.min(pregnancy.weeks - s1.weeks, s2.weeks));
+        const w1 = pregnancy.stage === 'formation' ? pregnancy.weeks : s1.weeks;
+        const w2 = pregnancy.stage === 'clutch' ? pregnancy.weeks : 0;
         barsHtml = `
             <div class="lw-stage-bar">
                 <div class="lw-stage-label">${s1.label} <span class="lw-dim">${w1}/${s1.weeks} нед.</span></div>
@@ -261,20 +265,32 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
         `;
     }
 
-    const isFullTerm = pregnancy.weeks >= totalWeeks;
-    const birthVerb = preset.gestationType === 'staged' ? 'Вылупление' : 'Роды';
-    const actionsHtml = isFullTerm ? `
-        <button type="button" class="lw-btn lw-complete-birth" data-who="${who}">${birthVerb} — записать ${pregnancy.offspringCount} в «Ребёнок»</button>
-        <button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить без родов</button>
-    ` : `
-        <button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить (тест)</button>
-    `;
+    // Три состояния кнопок: обычная фаза / формирование завершено, пора класть/метать
+    // икру (staged) / текущая фаза завершена и это уже роды-вылупление.
+    let actionsHtml;
+    if (preset.gestationType === 'staged' && pregnancy.stage === 'formation' && isStageFullTerm) {
+        const layVerb = preset.id === 'merfolk' ? 'Нерест' : 'Кладка';
+        actionsHtml = `
+            <button type="button" class="lw-btn lw-lay-clutch" data-who="${who}">${layVerb} — начать инкубацию</button>
+            <button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить без кладки</button>
+        `;
+    } else if (isStageFullTerm) {
+        const birthVerb = preset.gestationType === 'staged' ? 'Вылупление' : 'Роды';
+        actionsHtml = `
+            <button type="button" class="lw-btn lw-complete-birth" data-who="${who}">${birthVerb} — записать ${pregnancy.offspringCount} в «Ребёнок»</button>
+            <button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить без родов</button>
+        `;
+    } else {
+        actionsHtml = `<button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить (тест)</button>`;
+    }
+
+    const weeksLabel = preset.gestationType === 'staged' ? 'Неделя (в этой фазе):' : 'Неделя:';
 
     return `
         ${barsHtml}
         <div class="lw-day-control">
-            <label>Неделя:</label>
-            <input type="number" class="lw-input lw-weeks-input" data-who="${who}" min="0" max="${totalWeeks}" value="${pregnancy.weeks}">
+            <label>${weeksLabel}</label>
+            <input type="number" class="lw-input lw-weeks-input" data-who="${who}" min="0" max="${stageMax}" value="${pregnancy.weeks}">
         </div>
         <div class="lw-day-control">
             <label>${preset.offspringLabel}:</label>
@@ -300,6 +316,12 @@ function bindPregnancyEvents() {
     $('.lw-end-pregnancy').on('click', function () {
         const who = $(this).data('who');
         endPregnancy(who);
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-lay-clutch').on('click', function () {
+        const who = $(this).data('who');
+        advanceToClutch(who);
         saveSettings();
         renderContent();
     });
@@ -336,7 +358,7 @@ function renderChildSection(preset) {
 
     const grownHtml = grown.length ? `
         <h3 class="lw-content-subtitle">Архив (выросли)</h3>
-        <ul class="lw-grown-list">${grown.map(c => `<li>${c.name || 'Без имени'}</li>`).join('')}</ul>
+        <div class="lw-grown-list" id="lw_grown_list"></div>
     ` : '';
 
     $('#lw_content').html(`
@@ -350,8 +372,26 @@ function renderChildSection(preset) {
         for (const child of children) {
             $list.append(renderChildCard(child, preset));
         }
-        bindChildEvents();
     }
+    if (grown.length) {
+        const $grownList = $('#lw_grown_list');
+        for (const child of grown) {
+            $grownList.append(renderGrownRow(child));
+        }
+    }
+    bindChildEvents();
+}
+
+function renderGrownRow(child) {
+    return `
+        <div class="lw-grown-row" data-id="${child.id}">
+            <span>${child.name || 'Без имени'}</span>
+            <div class="lw-grown-actions">
+                <button type="button" class="lw-btn lw-btn-muted lw-restore-child" data-id="${child.id}">Вернуть</button>
+                <button type="button" class="lw-btn lw-btn-muted lw-delete-child" data-id="${child.id}">Удалить</button>
+            </div>
+        </div>
+    `;
 }
 
 function renderChildCard(child, preset) {
@@ -389,6 +429,11 @@ function bindChildEvents() {
     });
     $('.lw-archive-child').on('click', function () {
         archiveChild($(this).data('id'));
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-restore-child').on('click', function () {
+        restoreChild($(this).data('id'));
         saveSettings();
         renderContent();
     });

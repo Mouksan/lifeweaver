@@ -164,13 +164,34 @@ export function endPregnancy(who) {
 export function setPregnancyWeeks(who, weeks) {
     const preset = activePreset();
     const character = getCharacterData(who);
-    if (!character.pregnancy?.isPregnant) return;
-    const total = getTotalWeeks(preset, getSettings().pregnancyDuration);
-    const w = Math.max(0, Math.min(total, parseInt(weeks) || 0));
-    character.pregnancy.weeks = w;
+    const pregnancy = character.pregnancy;
+    if (!pregnancy?.isPregnant) return;
+
+    const maxWeeks = currentStageMaxWeeks(preset, pregnancy);
+    pregnancy.weeks = Math.max(0, Math.min(maxWeeks, parseInt(weeks) || 0));
+}
+
+// Максимум недель ДЛЯ ТЕКУЩЕЙ ФАЗЫ (а не суммарно) — у staged это либо
+// длительность формирования, либо длительность кладки/инкубации, у live — общий срок.
+export function currentStageMaxWeeks(preset, pregnancy) {
     if (preset.gestationType === 'staged') {
-        character.pregnancy.stage = w >= preset.stages.first.weeks ? 'clutch' : 'formation';
+        return pregnancy.stage === 'clutch' ? preset.stages.second.weeks : preset.stages.first.weeks;
     }
+    return getTotalWeeks(preset, getSettings().pregnancyDuration);
+}
+
+// Кладка/нерест — явное событие завершения первой фазы (формирования).
+// Само по себе НЕ переходит в роды: обнуляет счётчик и начинает отсчёт
+// инкубации отдельно, только после того как игрок сам это подтвердил.
+export function advanceToClutch(who) {
+    const preset = activePreset();
+    if (preset.gestationType !== 'staged') return;
+    const character = getCharacterData(who);
+    const pregnancy = character.pregnancy;
+    if (!pregnancy?.isPregnant || pregnancy.stage !== 'formation') return;
+    if (pregnancy.weeks < preset.stages.first.weeks) return;
+    pregnancy.stage = 'clutch';
+    pregnancy.weeks = 0;
 }
 
 export function setOffspringCount(who, count) {
@@ -237,6 +258,14 @@ export function archiveChild(id) {
     if (idx === -1) return;
     const [child] = children.splice(idx, 1);
     getGrownChildren().push(child);
+}
+
+export function restoreChild(id) {
+    const grown = getGrownChildren();
+    const idx = grown.findIndex(c => c.id === id);
+    if (idx === -1) return;
+    const [child] = grown.splice(idx, 1);
+    getChildren().push(child);
 }
 
 export function deleteChild(id) {

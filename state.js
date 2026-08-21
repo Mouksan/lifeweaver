@@ -174,7 +174,10 @@ export function setPregnancyWeeks(who, weeks) {
 }
 
 export function setOffspringCount(who, count) {
+    const preset = activePreset();
+    const range = preset.offspringRange || { min: 1, max: 1 };
     const character = getCharacterData(who);
     if (!character.pregnancy) return;
-    character.pregnancy.offspringCount = Math.max(1, parseInt(count) || 1);
+    const n = Math.max(range.min, Math.min(range.max, parseInt(count) || range.min));
+    character.pregnancy.offspringCount = n;
 }

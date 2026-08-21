@@ -264,7 +264,7 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
         </div>
         <div class="lw-day-control">
             <label>${preset.offspringLabel}:</label>
-            <input type="number" class="lw-input lw-offspring-input" data-who="${who}" min="1" value="${pregnancy.offspringCount}">
+            <input type="number" class="lw-input lw-offspring-input" data-who="${who}" min="${preset.offspringRange.min}" max="${preset.offspringRange.max}" value="${pregnancy.offspringCount}">
         </div>
         <button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Завершить (сбросить)</button>
     `;

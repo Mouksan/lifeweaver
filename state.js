@@ -42,33 +42,58 @@ export function resetChatIdCache() {
 
 let _fallbackWarned = false;
 
-function computeChatId() {
+// Все формы id текущего чата в порядке приоритета.
+// ВАЖНО: имя файла чата идёт ПЕРВЫМ, а integrity — только запасной вариант.
+// Причина: ветка чата (Branch) наследует integrity родителя, и по нему три
+// разных чата выглядели как один — их данные сливались в одну запись.
+// Имя файла у ветки своё, поэтому оно надёжнее как ключ.
+export function computeChatIdForms() {
+    const forms = [];
     try {
         const ctx = typeof SillyTavern?.getContext === 'function' ? SillyTavern.getContext() : null;
-        if (!ctx) return null;
+        if (!ctx) return forms;
 
         const meta = ctx.chatMetadata || ctx.chat_metadata;
-        const integrity = meta?.integrity;
-        if ((typeof integrity === 'string' && integrity.length > 0) || typeof integrity === 'number') {
-            return `uuid:${String(integrity)}`;
+
+        // 1. Имя файла чата — уникально для каждого чата, включая ветки
+        const fname = meta?.file_name || meta?.fileName;
+        if (typeof fname === 'string' && fname.length > 0) {
+            forms.push(`file:${fname.replace(/\.jsonl$/i, '')}`);
         }
 
+        // 2. Прямой id из контекста (для персонажей — имя файла чата,
+        //    для групп — id группы, поэтому групповые дополняем chat_id)
         const directId = ctx.chatId;
         if ((typeof directId === 'string' && directId.trim().length > 0) || typeof directId === 'number') {
-            return String(directId).trim();
+            let s = String(directId).trim();
+            // Отсекаем миллисекундный хвост: "Имя - 2026-05-28@11h08m17s150ms"
+            s = s.replace(/\s-\s(\d{4}-\d{2}-\d{2}@\d{2}h\d{2}m\d{2}s)\d*ms$/, ' - $1');
+            s = s.replace(/\s@(\d{4}-\d{2}-\d{2}@\d{2}h\d{2}m\d{2}s)\d*ms$/, ' @$1');
+            const groupId = ctx.groupId;
+            forms.push(groupId ? `group:${groupId}/${s}` : s);
         }
-    } catch (e) { /* игнорируем — вернём null ниже */ }
-    return null;
+
+        // 3. integrity — только как запасной ключ (см. комментарий выше)
+        const integrity = meta?.integrity;
+        if ((typeof integrity === 'string' && integrity.length > 0) || typeof integrity === 'number') {
+            forms.push(`uuid:${String(integrity)}`);
+        }
+
+        const hash = meta?.chat_id_hash ?? meta?.chatIdHash;
+        if (hash !== undefined && hash !== null && hash !== '') {
+            forms.push(`hash:${String(hash)}`);
+        }
+    } catch (e) { /* ignore */ }
+    return forms;
 }
 
-// БЕЗ КЭША. Раньше id чата кэшировался до события смены чата, и это давало
-// утечку данных: если что-то обращалось к состоянию в момент, когда новый чат
-// ещё не догрузился, кэш «залипал» на предыдущем id, и всё, что писалось
-// дальше, уходило в данные СТАРОГО чата. Симптом — одинаковые кладки и
-// пропавшие дети во всех чатах одного персонажа. Пересчёт стоит несколько
-// чтений свойств, экономить тут нечего.
+// Каноничный ключ текущего чата — первая (самая надёжная) из форм.
+// БЕЗ КЭША: раньше id кэшировался до события смены чата и «залипал» на
+// предыдущем чате, если к состоянию обращались в момент перехода — данные
+// уходили не в тот чат. Пересчёт стоит несколько чтений свойств.
 export function getCurrentChatId() {
-    return computeChatId();
+    const forms = computeChatIdForms();
+    return forms.length > 0 ? forms[0] : null;
 }
 
 // ── Fallback, если chatId ещё не определён (чат не выбран) ──
@@ -94,6 +119,20 @@ export function getChatData() {
             console.warn('[Lifeweaver] chatId не определён — работаю во временном объекте, изменения не сохранятся');
         }
         return getFallback();
+    }
+
+    // Данных под каноничным ключом нет — ищем под запасными формами id и
+    // переносим. Так чаты, заведённые ещё под старой схемой (uuid:...),
+    // не теряют накопленное при смене приоритета ключей.
+    if (!s.chatData[chatId]) {
+        for (const alt of computeChatIdForms()) {
+            if (alt !== chatId && s.chatData[alt]) {
+                s.chatData[chatId] = s.chatData[alt];
+                delete s.chatData[alt];
+                console.log(`[Lifeweaver] данные чата перенесены: ${alt} → ${chatId}`);
+                break;
+            }
+        }
     }
 
     if (!s.chatData[chatId]) {

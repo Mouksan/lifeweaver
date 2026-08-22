@@ -1241,14 +1241,22 @@ function bindSettingsEvents() {
             const kids = (d.children || []).length;
             const cl = (d.clutches || []).length;
             const preg = ['user', 'char'].filter(w => d.characters?.[w]?.pregnancy?.isPregnant).length;
-            return `<div class="lw-debug-comment">${id === current ? '► ' : '   '}${escapeHtml(id)}
+            return `<div class="lw-debug-comment">${id === current ? '► ' : '&nbsp;&nbsp;&nbsp;'}${escapeHtml(id)}
+                <button type="button" class="lw-btn lw-btn-danger lw-purge-entry" data-id="${escapeHtml(id)}" style="float:right;padding:2px 7px;font-size:0.65rem;">Удалить</button>
                 <br><span class="lw-dim">вселенная: ${escapeHtml(d.universe || '—')} · беременностей: ${preg} · кладок: ${cl} · детей: ${kids} · день: ${d.rpDay || 0}</span></div>`;
         });
         $('#lw_debug_box').html(`
             <div class="lw-debug-row"><span class="lw-dim">Текущий чат:</span> ${escapeHtml(current || '(не определён!)')}</div>
             <div class="lw-debug-row"><span class="lw-dim">Записей в хранилище: ${rows.length}</span></div>
             ${rows.join('') || '<div class="lw-dim">пусто</div>'}
+            <div class="lw-debug-row lw-dim" style="margin-top:8px;">Удаление стирает данные этого чата насовсем — для чистки слипшихся записей.</div>
         `);
+        $('.lw-purge-entry').on('click', function () {
+            const id = $(this).data('id');
+            delete getSettings().chatData[id];
+            saveSettings();
+            $('#lw_debug_storage').trigger('click');
+        });
     });
     $('#lw_debug_copy').on('click', async () => {
         const d = getLastScanDebug();

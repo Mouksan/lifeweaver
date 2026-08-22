@@ -75,7 +75,8 @@ function characterStatusContext(who, preset) {
         return `${name}: currently ${stageLabel.toLowerCase()}, ${pregnancy.weeks}/${stageMax} weeks, carrying ${pregnancy.offspringCount} ${preset.offspringLabel.toLowerCase()}.\n`;
     }
     if (character.canCarry) {
-        const loss = getLastLoss(who);
+        const hasClutch = getClutches().some(c => c.parentWho === who);
+        const loss = hasClutch ? null : getLastLoss(who);
         if (loss) {
             const what = loss.reason === 'abortion' ? 'terminated' : 'lost';
             return `${name}: NOT pregnant — the previous pregnancy was ${what}. Never write or imply ${name} is still pregnant; do not resurrect it from earlier context.\n`;
@@ -96,6 +97,31 @@ function clutchesContext(preset) {
         b += `• ${c.offspringCount} ${preset.offspringLabel.toLowerCase()} laid by ${parent} — ${label.toLowerCase()} ${c.weeks}/${c.totalWeeks} weeks.\n`;
     }
     b += `The carrier's body is free again — they are no longer pregnant and could conceive anew, though the nest and the eggs take most of their attention.\n`;
+    return b;
+}
+
+// ─── Теги для инкубирующихся кладок ───
+// Отдельно от characterTagBlock: тот выдаётся только беременным, а носитель
+// после нереста не беременен — кладка лежит в гнезде сама по себе.
+function clutchTagBlock(preset) {
+    const clutches = getClutches();
+    if (clutches.length === 0) return '';
+
+    let b = '';
+    const byParent = { user: [], char: [] };
+    for (const c of clutches) (byParent[c.parentWho] || byParent.user).push(c);
+
+    for (const who of ['user', 'char']) {
+        const mine = byParent[who];
+        if (!mine.length) continue;
+        const name = who === 'char' ? '{{char}}' : '{{user}}';
+        const tagSuffix = who === 'char' ? ':CHAR' : '';
+        const ripe = mine.some(c => c.weeks >= Math.floor(c.totalWeeks * 0.85));
+        const urgency = ripe ? ' — DUE NOW, they may crack open any moment' : '';
+
+        b += `If the ${preset.offspringLabel.toLowerCase()} laid by ${name} actually hatch THIS reply${urgency} (the young are out of the shell — not just twitching, cracking or stirring), add: <!-- [BIRTH${tagSuffix}] -->. Add it even if only the first one hatches — the rest can emerge over the following replies.\n`;
+        b += `If that clutch is instead destroyed or dies for good this reply (crushed, gone cold, confirmed dead), add: <!-- [MISCARRIAGE${tagSuffix}] --> (never together with the hatch tag).\n`;
+    }
     return b;
 }
 
@@ -281,6 +307,7 @@ export function buildPrompt() {
     prompt += `1. ALWAYS: state how many in-story days passed THIS reply (0 = same moment; 1 = next morning; 7 = a week later): <!-- [DAYS_PASSED:N] --> — replace N with a plain number.\n`;
     prompt += characterTagBlock('user', preset);
     prompt += characterTagBlock('char', preset);
+    prompt += clutchTagBlock(preset);
 
     // Время суток нужно только пока есть малыши — от него зависят их потребности
     if (getChildren().some(c => (c.ageWeeks || 0) * 7 < 1095)) {

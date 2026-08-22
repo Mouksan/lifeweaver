@@ -230,7 +230,8 @@ function applyScanResult(result, debug = null) {
                 log(`${who}: роды применены, создано детей: ${created.length}`);
             } else {
                 const c = getCharacterData(who);
-                const why = !c.pregnancy?.isPregnant ? 'беременности нет'
+                const hasClutch = getClutches().some(cl => cl.parentWho === who);
+                const why = (!c.pregnancy?.isPregnant && !hasClutch) ? 'нет ни беременности, ни кладки'
                     : isBlocked('birth', who) ? 'БЛОК после недавней потери — снимется через несколько сообщений'
                     : 'неизвестно';
                 log(`${who}: РОДЫ ОТКЛОНЕНЫ — ${why}`);

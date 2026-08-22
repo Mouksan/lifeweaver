@@ -888,10 +888,27 @@ export function isBlocked(kind, who) {
 export function terminatePregnancy(who, reason = 'manual') {
     const character = getCharacterData(who);
     const pregnancy = character.pregnancy;
-    if (!pregnancy?.isPregnant) return false;
-
     const chat = getChatData();
     const preset = getActivePreset();
+
+    // Носитель не беременен, но у него есть кладка — значит гибнет она.
+    // Без этой ветки тег гибели после нереста молча ничего не делал.
+    if (!pregnancy?.isPregnant) {
+        const mine = getClutchesOf(who);
+        if (mine.length === 0) return false;
+        const oldest = mine.reduce((a, b) => (b.weeks > a.weeks ? b : a), mine[0]);
+        if (!chat.lastLoss) chat.lastLoss = { user: null, char: null };
+        chat.lastLoss[who] = {
+            reason,
+            stage: 'clutch',
+            weeks: oldest.weeks,
+            offspringCount: oldest.offspringCount,
+            offspringLabel: preset.offspringLabel,
+            rpDay: chat.rpDay || 0,
+        };
+        removeClutch(oldest.id);
+        return true;
+    }
 
     // Запоминаем, что именно потеряли — для UI и промпта
     if (!chat.lastLoss) chat.lastLoss = { user: null, char: null };

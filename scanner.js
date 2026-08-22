@@ -31,7 +31,7 @@
 //  - Нет SEX_REVEAL/BABY_TRAITS пока — вернутся отдельным заходом вместе
 //    с полями пола/черт в данных ребёнка.
 
-const KNOWN_TAGS = ['DAYS_PASSED', 'CONCEPTION_CHECK', 'LAY_CLUTCH', 'BIRTH', 'MISCARRIAGE', 'ABORTION', 'PREGNANCY_KNOWN', 'SEX_REVEAL', 'BABY_TRAITS', 'CHILD_TRAITS', 'TIME_OF_DAY', 'PREGNANCY_TEST', 'DOCTOR_VISIT'];
+const KNOWN_TAGS = ['DAYS_PASSED', 'CONCEPTION_CHECK', 'LAY_CLUTCH', 'BIRTH', 'MISCARRIAGE', 'ABORTION', 'PREGNANCY_KNOWN', 'SEX_REVEAL', 'BABY_TRAITS', 'CHILD_TRAITS', 'TIME_OF_DAY', 'PREGNANCY_TEST', 'DOCTOR_VISIT', 'RP_STATUS'];
 // После имени тега может идти произвольная нагрузка: число (DAYS_PASSED:14),
 // список полов (SEX_REVEAL:M,F) или целый JSON (BABY_TRAITS:{...}).
 // Раньше тут допускались только цифры — теги с буквами и JSON не
@@ -146,6 +146,19 @@ function safeParseJson(raw) {
 // вдохновителю он не требовался: при кладке потомство вылупляется в несколько
 // сообщений, и у тех, кто вылупился позже, характер/внешность ещё неизвестны.
 const CHILD_TRAITS_RE = /<!--\s*\[CHILD_TRAITS:\s*(\{[\s\S]*?\})\s*\]\s*-->/i;
+
+// RP_STATUS — живая динамика сцены от модели. В отличие от наших таблиц
+// симптомов (предсказание по сроку), это то, что происходит с конкретным
+// героем прямо сейчас, глазами модели, которая только что писала сцену.
+const RP_STATUS_RE = /<!--\s*\[RP_STATUS:\s*(\{[\s\S]*?\})\s*\]\s*-->/i;
+
+export function scanStatus(text) {
+    if (!text) return null;
+    const m = text.match(RP_STATUS_RE);
+    if (!m) return null;
+    const json = safeParseJson(m[1]);
+    return (json && typeof json === 'object') ? json : null;
+}
 
 export function scanChildTraits(text) {
     if (!text) return null;
@@ -290,6 +303,7 @@ export function scanMessage(text) {
         charBabyTraits: scanBabyTraits(text, true),
         childTraits: scanChildTraits(text),
         timeOfDay: extractTimeOfDay(text),
+        status: scanStatus(text),
         test: has('PREGNANCY_TEST', false),
         charTest: has('PREGNANCY_TEST', true),
         doctor: has('DOCTOR_VISIT', false),
@@ -301,7 +315,7 @@ export function scanMessage(text) {
         || result.birth || result.charBirth || result.miscarriage || result.charMiscarriage
         || result.abortion || result.charAbortion || result.known || result.charKnown
         || result.sexRevealed || result.charSexRevealed || (result.childTraits && result.childTraits.length) || result.timeOfDay
-        || result.test || result.charTest || result.doctor || result.charDoctor;
+        || result.test || result.charTest || result.doctor || result.charDoctor || result.status;
     if (!anyEvent && result.daysPassed === 0) return null;
 
     return result;

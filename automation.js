@@ -26,7 +26,7 @@ import {
     getSettings, getChatData, getCurrentChatId,
     advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
     applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex, getActivePreset,
-    getCharacterData, isBlocked, applyChildTraits, setTimeOfDay, setRpTime, autoArchiveGrownChildren,
+    getCharacterData, isBlocked, applyChildTraits, setTimeOfDay, setRpTime, autoArchiveGrownChildren, applyStatus,
     migrateLegacyClutch, getClutches, takeTest, doctorVisit, createUndoCheckpoint,
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan } from './scanner.js';
@@ -171,6 +171,12 @@ function applyScanResult(result, debug = null) {
                 showGraduationDialog(grown, () => notifyStateChanged());
             } catch (e) { /* ignore */ }
         }
+    }
+    // Живая динамика от модели — до остальных событий, чтобы роды и кладка
+    // уже видели актуальные данные сцены.
+    if (result.status) {
+        const n = applyStatus(result.status);
+        if (n > 0) log(`динамика от модели: ${n} полей`);
     }
     if (result.timeOfDay) {
         if (result.timeOfDay.rpTime) {

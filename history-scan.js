@@ -21,7 +21,7 @@
 import { getSettings, getChatData, getChildren, getGrownChildren, getCharacterData,
          advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
          applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex,
-         applyChildTraits, setTimeOfDay, setRpTime, createUndoCheckpoint,
+         applyChildTraits, setTimeOfDay, setRpTime, createUndoCheckpoint, applyStatus,
          clearResurrectionBlocks, getClutches } from './state.js';
 import { scanMessage, stripThink } from './scanner.js';
 
@@ -112,6 +112,7 @@ export function scanFullHistory() {
                 advanceTimeByDays(result.daysPassed);
                 stats.days += result.daysPassed;
             }
+            if (result.status) applyStatus(result.status);
             if (result.timeOfDay) {
                 if (result.timeOfDay.rpTime) setRpTime(result.timeOfDay.rpTime);
                 else if (result.timeOfDay.bucket) setTimeOfDay(result.timeOfDay.bucket);

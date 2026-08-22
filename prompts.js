@@ -24,7 +24,7 @@
 
 import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { extensionName, CONTRACEPTION_TYPES, termsOf } from './config.js';
-import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid, getHealthHolders, predictTest, getPostpartum } from './state.js';
+import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid, getHealthHolders, predictTest, getPostpartum, getDynamic, getChildDynamic } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { activeComplications, TEST_LABELS, bodyPoolFor } from './health.js';
 import { getSymptoms, getRecommendation } from './symptoms.js';
@@ -115,6 +115,86 @@ function clutchesContext(preset) {
     }
     b += `The carrier's body is free again — they are no longer pregnant and could conceive anew, though the nest and the eggs take most of their attention.\n`;
     return b;
+}
+
+// ─── Тег живой динамики: то, что трекер знать не может ───
+// Поля включаются по ДОЛЕ срока, а не по абсолютной неделе: при 20-недельном
+// вынашивании 12-я неделя — это уже финиш, а не середина (приём вдохновителя).
+function statusTagBlock(preset) {
+    const parts = [];
+
+    for (const who of ['user', 'char']) {
+        const character = getCharacterData(who);
+        const p = character.pregnancy;
+        if (!p?.isPregnant) continue;
+        const name = who === 'char' ? '{{char}}' : '{{user}}';
+        const max = currentStageMaxWeeks(preset, p);
+        const pct = Math.round((p.weeks / Math.max(1, max)) * 100);
+        const staged = preset.gestationType === 'staged';
+        const t = termsOf(preset);
+
+        const fields = ['"mood"', '"libido"', '"physical"'];
+        if (!staged) fields.push('"weight_gain"');
+        fields.push(staged ? '"clutch_size"' : '"fetus_size"');
+        if (pct >= 40) fields.push('"movements"');
+        if (pct >= 50 && !staged) fields.push('"swelling" (or null)');
+        if (pct >= 70) fields.push(staged ? '"pre_laying_cramps" (or null)' : '"braxton_hicks" (or null)');
+        if (pct >= 80 && !staged) fields.push('"fetal_position"');
+        fields.push('"father_name" (or null)', '"note"');
+
+        const sizeField = staged ? 'clutch_size' : 'fetus_size';
+        const sizeWhat = staged ? `the ${t.eggs} are` : 'the baby is';
+        parts.push({ who, name, fields, pct, max, weeks: p.weeks, sizeField, sizeWhat });
+    }
+
+    if (parts.length === 0 && getChildren().length === 0) return '';
+
+    let b = `\n[STATUS TAG — include it every reply]\n`;
+    b += `One HTML comment at the very end, values in Russian, 2–5 words per field, null where a field is irrelevant right now:\n`;
+
+    const main = parts.find(x => x.who === 'user') || parts[0];
+    if (main) {
+        b += `<!-- [RP_STATUS:{${main.fields.join(',')}}] -->\n`;
+        b += `"note" = one short sentence about ${main.name}'s state from THIS scene specifically — not a generic line, not the previous one repeated.\n`;
+        b += `"${main.sizeField}" = how big ${main.sizeWhat} NOW, with a rough size and weight. Pick any comparison that suits this story and this character — a fruit if you like, but just as easily a coin, a kitten, a clenched fist, a river stone, a tool from their trade, something from the setting. Vary it between replies instead of walking down the same produce aisle. Fit it to the ${main.max}-week term (${main.pct}% of the way through), NOT to a real-life week ${main.weeks}. The tracker has no size table — this field is the only source.\n`;
+
+        const partner = parts.find(x => x.who !== main.who);
+        if (partner) {
+            b += `${partner.name} is tracked too — add a nested "partner":{"mood":"…","physical":"…","${partner.sizeField}":"…","note":"…"} object inside the same tag.\n`;
+        }
+    }
+
+    // Дети — состояние от модели важнее наших возрастных норм
+    const children = getChildren();
+    if (children.length > 0) {
+        const names = children.slice(0, 6).map((c, i) => `"${c.name || `#${i + 1}`}"`).join(', ');
+        if (!main) b += `<!-- [RP_STATUS:{}] -->\n`;
+        b += `Add a nested "children" object keyed by name (${names}), each with {"mood","sleep","feeding","diaper","care_note"} — what that child is actually doing in THIS scene. This overrides the tracker's age-based guesses.\n`;
+    }
+
+    b += `Never turn this tag into visible prose or a status block — it is an invisible comment.\n`;
+    return b;
+}
+
+// ─── Что модель уже сообщила: возвращаем ей же, чтобы держала непрерывность ───
+function dynamicContext() {
+    let b = '';
+    for (const who of ['user', 'char']) {
+        const p = getCharacterData(who).pregnancy;
+        if (!p?.isPregnant) continue;
+        const dyn = getDynamic(who);
+        const entries = Object.entries(dyn).filter(([, v]) => v);
+        if (entries.length === 0) continue;
+        const name = who === 'char' ? '{{char}}' : '{{user}}';
+        b += `${name} as last recorded: ${entries.map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join('; ')}.\n`;
+    }
+    for (const child of getChildren()) {
+        const dyn = getChildDynamic(child.id);
+        const entries = Object.entries(dyn).filter(([, v]) => v);
+        if (entries.length === 0) continue;
+        b += `${child.name || 'Ребёнок'} as last recorded: ${entries.map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join('; ')}.\n`;
+    }
+    return b ? `\nLast recorded state — continue from it, do not contradict or reset it without reason:\n${b}` : '';
 }
 
 // ─── Послеродовое восстановление ───
@@ -377,6 +457,7 @@ export function buildPrompt() {
     prompt += clutchesContext(preset);
     prompt += healthContext(preset);
     prompt += postpartumContext();
+    prompt += dynamicContext();
     prompt += childrenContext(preset);
     prompt += tryingContext(preset);
 
@@ -387,6 +468,7 @@ export function buildPrompt() {
     prompt += characterTagBlock('char', preset);
     prompt += clutchTagBlock(preset);
     prompt += healthTagBlock(preset);
+    prompt += statusTagBlock(preset);
 
     // Время суток нужно только пока есть малыши — от него зависят их потребности
     if (getChildren().some(c => (c.ageWeeks || 0) * 7 < 1095)) {

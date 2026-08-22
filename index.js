@@ -16,7 +16,7 @@ import {
     isTrying, setTrying, monthsTrying, conceptionStruggle, getFertilityAid, setFertilityAid, clearFertilityAid,
     getClutches, setClutchWeeks, hatchClutch, removeClutch, migrateLegacyClutch,
     getHealthHolders, doctorVisit, takeTest, getCurrentChatId, addExistingChild,
-    getLooks, setLooks, getPostpartum, setLactating, clearPostpartum,
+    getLooks, setLooks, getPostpartum, setLactating, clearPostpartum, getDynamic, getChildDynamic,
     createUndoCheckpoint, undoLastChange, canUndo, lastUndoLabel,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
@@ -509,6 +509,25 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
 
     const weeksLabel = preset.gestationType === 'staged' ? 'Неделя (в этой фазе):' : 'Неделя:';
 
+    // Живое от модели — важнее наших табличных догадок, поэтому выше
+    const dyn = getDynamic(who);
+    const dynEntries = Object.entries(dyn).filter(([, v]) => v);
+    const DYN_LABELS = {
+        mood: 'Настроение', libido: 'Либидо', physical: 'Тело', weight_gain: 'Вес',
+        symptoms: 'Симптомы', movements: 'Шевеления', swelling: 'Отёки',
+        braxton_hicks: 'Тренировочные схватки', pre_laying_cramps: 'Спазмы перед кладкой',
+        fetal_position: 'Положение', fetus_size: 'Размер', clutch_size: 'Размер',
+        father_name: 'Отец', note: '',
+    };
+    const dynHtml = dynEntries.length ? `
+        <div class="lw-dynamic">
+            <div class="lw-card-label">Из последней сцены</div>
+            ${dynEntries.filter(([k]) => k !== 'note').map(([k, v]) =>
+                `<div><span class="lw-dim">${DYN_LABELS[k] || k}:</span> ${v}</div>`).join('')}
+            ${dyn.note ? `<div class="lw-dyn-note">${dyn.note}</div>` : ''}
+        </div>
+    ` : '';
+
     // Телесные признаки текущего срока
     const pct = Math.round((pregnancy.weeks / Math.max(1, stageMax)) * 100);
     const symptomsHtml = `
@@ -546,6 +565,7 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
             <input type="number" class="lw-input lw-offspring-input" data-who="${who}" min="${preset.offspringRange.min}" max="${preset.offspringRange.max}" value="${pregnancy.offspringCount}">
         </div>
         ${sexHtml}
+        ${dynHtml}
         ${symptomsHtml}
         ${actionsHtml}
     `;
@@ -797,6 +817,18 @@ function renderChildCard(child, preset) {
         ${needs.careNote ? `<div class="lw-care-note">${needs.careNote}</div>` : ''}
     `;
 
+    const cdyn = getChildDynamic(child.id);
+    const cdynEntries = Object.entries(cdyn).filter(([, v]) => v);
+    const CDYN_LABELS = { mood: 'Настроение', sleep: 'Сон', feeding: 'Кормление', diaper: 'Подгузник', care_note: '', note: '' };
+    const childDynHtml = cdynEntries.length ? `
+        <div class="lw-dynamic">
+            <div class="lw-card-label">Из последней сцены</div>
+            ${cdynEntries.filter(([k]) => !['care_note', 'note'].includes(k)).map(([k, v]) =>
+                `<div><span class="lw-dim">${CDYN_LABELS[k] || k}:</span> ${v}</div>`).join('')}
+            ${(cdyn.care_note || cdyn.note) ? `<div class="lw-dyn-note">${cdyn.care_note || cdyn.note}</div>` : ''}
+        </div>
+    ` : '';
+
     const careBits = [norms.feeding, norms.sleep];
     if (ageDays < 1095) careBits.push(norms.diaper);
     if (norms.teething) careBits.push(`🦷 ${norms.teething}`);
@@ -816,6 +848,7 @@ function renderChildCard(child, preset) {
             </div>
             <div class="lw-dim lw-child-origin">От: ${parentName} · ${originPreset.label}${child.fatherName ? ` · отец: ${child.fatherName}` : ''}</div>
             ${needsHtml}
+            ${childDynHtml}
             ${traitsHtml}
             <div class="lw-child-care">${careBits.filter(Boolean).map(b => `<div>• ${b}</div>`).join('')}</div>
             <div class="lw-child-milestones">

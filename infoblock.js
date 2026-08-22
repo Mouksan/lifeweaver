@@ -13,7 +13,8 @@
 // дети, послеродовое), поэтому блок одинаково работает во всех вселенных.
 
 import { getSettings, getActivePreset, getCharacterData, carrierDisplayName, currentStageMaxWeeks,
-         getClutches, getChildren, getPostpartum, isPregnancyObvious, getTimeForCare, getRpDay } from './state.js';
+         getClutches, getChildren, getPostpartum, isPregnancyObvious, getTimeForCare, getRpDay,
+         getDynamic, getChildDynamic } from './state.js';
 import { termsOf } from './config.js';
 import { childAgeDays, getGrowthStage, getCareNeeds, formatAge, sexLabel } from './baby-care.js';
 import { activeComplications, bodyPoolFor } from './health.js';
@@ -101,8 +102,17 @@ function carrierSection(who, preset) {
     if (p.sexRevealed && p.offspringSex?.length) {
         stats += stat('fa-venus-mars', 'purple', 'Пол', p.offspringSex.map(sexLabel).join(', '), true);
     }
+    // Динамика от модели важнее табличных симптомов — показываем её
+    const dyn = getDynamic(who);
+    if (dyn.fetus_size || dyn.clutch_size) {
+        stats += stat('fa-ruler', 'blue', 'Размер', dyn.fetus_size || dyn.clutch_size, true);
+    }
+    if (dyn.mood) stats += stat('fa-face-smile', 'purple', 'Настроение', dyn.mood);
+    if (dyn.movements) stats += stat('fa-wave-square', 'green', 'Шевеления', dyn.movements);
+
     const symptoms = getSymptoms(bodyPoolFor(preset), pct, p.weeks, t);
-    const note = `<div class="lw-ib-note">${esc(symptoms.join(', '))}</div>` + healthBadgeHtml(p);
+    const noteText = dyn.note || symptoms.join(', ');
+    const note = `<div class="lw-ib-note">${esc(noteText)}</div>` + healthBadgeHtml(p);
 
     return section(`p:${who}`, 'pregnancy', 'fa-heart', name, stageLabel,
         bar(p.weeks, max, 'pregnancy'), stats, note);
@@ -132,7 +142,11 @@ function childrenSection() {
         const alerts = [needs.feeding, needs.diaper].filter(v => /Хочет есть|Требует смены/.test(v || ''));
         const icon = child.sex === 'M' ? 'fa-mars' : child.sex === 'F' ? 'fa-venus' : 'fa-genderless';
         const tone = child.sex === 'F' ? 'pink' : 'blue';
-        const value = `${formatAge(days)} · ${needs.sleep}${alerts.length ? ` · ${alerts.join(', ')}` : ''}`;
+        const cd = getChildDynamic(child.id);
+        // Что сказала модель, важнее того, что мы предположили по возрасту
+        const sleepText = cd.sleep || needs.sleep;
+        const extra = [cd.mood, cd.feeding].filter(Boolean).join(', ');
+        const value = `${formatAge(days)} · ${sleepText}${extra ? ` · ${extra}` : ''}${alerts.length && !cd.sleep ? ` · ${alerts.join(', ')}` : ''}`;
         stats += stat(icon, tone, `${child.name || 'Малыш'}${stage ? ` · ${stage.label}` : ''}`, value, true, alerts.length > 0);
     }
     if (children.length > 6) {

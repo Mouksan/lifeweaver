@@ -1373,3 +1373,21 @@ details.lw-ib[open] .lw-ib-chev { transform: rotate(180deg); }
 @keyframes lwConfetti {
     to { transform: translateY(420px) rotate(720deg); opacity: 0; }
 }
+
+/* Живая динамика от модели */
+.lw-dynamic {
+    font-size: 0.76rem;
+    line-height: 1.6;
+    padding: 8px 10px;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--lw-card-accent, var(--lw-accent)) 9%, transparent);
+    border-left: 2px solid var(--lw-card-accent, var(--lw-accent));
+}
+
+.lw-dyn-note {
+    margin-top: 5px;
+    padding-top: 5px;
+    border-top: 1px solid var(--lw-border);
+    font-style: italic;
+    color: var(--lw-text-dim);
+}

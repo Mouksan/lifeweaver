@@ -730,6 +730,108 @@ export function clearUndoStack() {
     chat._undo = [];
 }
 
+// ═══════════════════════════════════════════
+// ЖИВАЯ ДИНАМИКА ОТ МОДЕЛИ (тег RP_STATUS)
+// ═══════════════════════════════════════════
+//
+// Наши симптомы — предсказание по сроку из таблицы, одинаковое для любой
+// истории. Динамика — то, что происходит с конкретным героем прямо сейчас,
+// глазами модели. Одно не заменяет другое: таблица держит канву, динамика
+// даёт живые детали, которых трекер знать не может.
+
+// Поля верхнего уровня, которые кладём на носителя
+const CARRIER_FIELDS = ['mood', 'libido', 'physical', 'weight_gain', 'symptoms',
+    'movements', 'swelling', 'braxton_hicks', 'fetal_position', 'fetus_size',
+    'father_name', 'note'];
+
+function cleanValue(v) {
+    if (v === null || v === undefined) return null;
+    const s = String(v).trim();
+    if (!s || /^(null|none|n\/a|—|-)$/i.test(s)) return null;
+    return s.slice(0, 200);
+}
+
+export function getDynamic(who) {
+    const character = getCharacterData(who);
+    if (!character.pregnancy) return {};
+    if (!character.pregnancy.dynamic || typeof character.pregnancy.dynamic !== 'object') {
+        character.pregnancy.dynamic = {};
+    }
+    return character.pregnancy.dynamic;
+}
+
+export function applyStatus(status) {
+    if (!status || typeof status !== 'object') return 0;
+    let applied = 0;
+
+    // Носитель-игрок — поля верхнего уровня
+    applied += applyCarrierStatus('user', status);
+    // Партнёр — вложенный объект partner
+    if (status.partner && typeof status.partner === 'object') {
+        applied += applyCarrierStatus('char', status.partner);
+    }
+
+    // Дети — вложенный объект children или babies: { имя|номер: {...} }
+    const kids = status.children || status.babies;
+    if (kids && typeof kids === 'object') applied += applyChildrenStatus(kids);
+
+    return applied;
+}
+
+function applyCarrierStatus(who, data) {
+    const dyn = getDynamic(who);
+    let applied = 0;
+    for (const field of CARRIER_FIELDS) {
+        if (!(field in data)) continue;
+        const v = cleanValue(data[field]);
+        // null от модели означает «сейчас неактуально» — стираем прежнее,
+        // иначе отёки из середины срока висели бы до самых родов.
+        if (v === null) { delete dyn[field]; continue; }
+        dyn[field] = v;
+        applied++;
+    }
+    // Имя отца — не динамика, а факт: кладём на всех детей этой беременности
+    const father = cleanValue(data.father_name);
+    if (father) getCharacterData(who).pregnancy.fatherName = father;
+    return applied;
+}
+
+const CHILD_FIELDS = ['mood', 'sleep', 'feeding', 'diaper', 'care_note', 'note'];
+
+function applyChildrenStatus(kids) {
+    const chat = getChatData();
+    if (!chat.childDynamic || typeof chat.childDynamic !== 'object') chat.childDynamic = {};
+    const children = getChildren();
+    let applied = 0;
+
+    for (const [key, data] of Object.entries(kids)) {
+        if (!data || typeof data !== 'object') continue;
+        // Ссылка на ребёнка: по имени, по номеру (#1) или по индексу
+        let target = children.find(c => (c.name || '').trim().toLowerCase() === String(key).trim().toLowerCase());
+        if (!target) {
+            const idx = parseInt(String(key).replace(/\D/g, ''));
+            if (!isNaN(idx) && idx >= 1 && idx <= children.length) target = children[idx - 1];
+        }
+        if (!target) continue;
+
+        const entry = chat.childDynamic[target.id] || {};
+        for (const field of CHILD_FIELDS) {
+            if (!(field in data)) continue;
+            const v = cleanValue(data[field]);
+            if (v === null) { delete entry[field]; continue; }
+            entry[field] = v;
+            applied++;
+        }
+        chat.childDynamic[target.id] = entry;
+    }
+    return applied;
+}
+
+export function getChildDynamic(childId) {
+    const chat = getChatData();
+    return (chat.childDynamic && chat.childDynamic[childId]) || {};
+}
+
 // ── Внешность родителей (для наследования) ──
 export function getLooks(who) {
     const character = getCharacterData(who);

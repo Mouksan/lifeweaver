@@ -10,6 +10,7 @@
 
 import { extension_settings } from '../../../extensions.js';
 import { bucketFromHour } from './baby-care.js';
+import { rollPlannedComplications, revealComplications, bodyPoolFor, treatComplications, rollTest, seededRandom, activeComplications } from './health.js';
 import { extensionName, defaultSettings, defaultChatData, defaultCharacterData, defaultPregnancyData, getPreset, getTotalWeeks, rollOffspringCount, CONTRACEPTION_TYPES, buildCustomPreset } from './config.js';
 
 function cloneDefault(value) {
@@ -165,11 +166,15 @@ export function startPregnancy(who) {
     // модель не сможет «узнать» его на УЗИ, он будет меняться каждый раз.
     const offspringSex = [];
     for (let i = 0; i < count; i++) offspringSex.push(Math.random() < 0.5 ? 'M' : 'F');
+    const total = getTotalWeeks(preset, getSettings().pregnancyDuration);
     character.pregnancy = {
         ...cloneDefault(defaultPregnancyData),
         isPregnant: true,
         offspringCount: count,
         offspringSex,
+        // Судьба беременности определяется сразу, как у вдохновителя:
+        // каждое осложнение либо выпадет на своей неделе, либо не выпадет вовсе.
+        _plannedComplications: rollPlannedComplications(bodyPoolFor(preset), total),
     };
 
     // Началась НОВАЯ беременность — блоки анти-воскрешения от предыдущей
@@ -234,7 +239,11 @@ export function setPregnancyWeeks(who, weeks) {
     if (!pregnancy?.isPregnant) return;
 
     const maxWeeks = currentStageMaxWeeks(preset, pregnancy);
+    const oldWeeks = pregnancy.weeks || 0;
     pregnancy.weeks = Math.max(0, Math.min(maxWeeks, parseInt(weeks) || 0));
+    if (pregnancy.weeks > oldWeeks) {
+        revealComplications(pregnancy, oldWeeks, pregnancy.weeks);
+    }
 }
 
 // Максимум недель ДЛЯ ТЕКУЩЕЙ ФАЗЫ (а не суммарно) — у staged это либо
@@ -580,6 +589,62 @@ export function getTimeForCare() {
 }
 
 // ═══════════════════════════════════════════
+// ЗДОРОВЬЕ И ТЕСТЫ
+// ═══════════════════════════════════════════
+
+// Дней с зачатия — считаем из недель и накопленного остатка
+export function daysSinceConception(who) {
+    const p = getCharacterData(who).pregnancy;
+    if (!p?.isPregnant) return 0;
+    return (p.weeks || 0) * 7 + (p._dayRemainder || 0);
+}
+
+// Что покажет тест, если сделать его ПРЯМО СЕЙЧАС. Бросок детерминирован
+// по дню истории: в пределах одного дня результат не должен прыгать, иначе
+// модель напишет одно, а панель покажет другое.
+export function predictTest(who) {
+    const p = getCharacterData(who).pregnancy;
+    const days = daysSinceConception(who);
+    const seed = `${getCurrentChatId() || 'x'}|${who}|${getChatData().rpDay || 0}`;
+    return rollTest(!!p?.isPregnant, days, seededRandom(seed));
+}
+
+// Сделать тест: результат запоминается, положительный снимает скрытность
+export function takeTest(who) {
+    const result = predictTest(who);
+    const p = getCharacterData(who).pregnancy;
+    if (p) {
+        p.lastTestResult = result;
+        p.lastTestRpDay = getChatData().rpDay || 0;
+        if (result === 'positive' || result === 'faint') p.pregnancyKnown = true;
+    }
+    return result;
+}
+
+// Визит к врачу/целителю. target: 'user'|'char' — лечим тело носителя,
+// либо id кладки — лечим кладку.
+export function doctorVisit(target) {
+    const clutch = getClutches().find(c => c.id === target);
+    if (clutch) return treatComplications(clutch);
+    const p = getCharacterData(target)?.pregnancy;
+    if (!p?.isPregnant) return { healed: 0, failed: 0 };
+    return treatComplications(p);
+}
+
+// Все носители/кладки, у которых есть нерешённые осложнения
+export function getHealthHolders() {
+    const list = [];
+    for (const who of ['user', 'char']) {
+        const p = getCharacterData(who).pregnancy;
+        if (p?.isPregnant) list.push({ kind: 'body', who, holder: p, label: carrierDisplayName(who) });
+    }
+    for (const c of getClutches()) {
+        list.push({ kind: 'clutch', who: c.parentWho, holder: c, id: c.id, label: `Кладка от ${carrierDisplayName(c.parentWho)}` });
+    }
+    return list;
+}
+
+// ═══════════════════════════════════════════
 // РЕЖИМ «ПЛАНИРУЕМ» + СРЕДСТВА ФЕРТИЛЬНОСТИ
 // ═══════════════════════════════════════════
 
@@ -675,7 +740,9 @@ function advanceClutchesByDays(days) {
         const addWeeks = Math.floor(total / 7);
         clutch._dayRemainder = total % 7;
         if (addWeeks > 0) {
-            clutch.weeks = Math.min(clutch.totalWeeks, (clutch.weeks || 0) + addWeeks);
+            const before = clutch.weeks || 0;
+            clutch.weeks = Math.min(clutch.totalWeeks, before + addWeeks);
+            revealComplications(clutch, before, clutch.weeks);
         }
     }
 }
@@ -767,6 +834,10 @@ export function applyLayClutch(who) {
         offspringSex: Array.isArray(pregnancy.offspringSex) ? [...pregnancy.offspringSex] : [],
         universe: preset.id,
         _dayRemainder: 0,
+        // У кладки свой пул бед: остывание, трещины, плесень, хищники
+        _plannedComplications: rollPlannedComplications('clutch', preset.stages.second.weeks),
+        complications: [],
+        healthStatus: 'normal',
     });
 
     character.pregnancy = cloneDefault(defaultPregnancyData);
@@ -780,7 +851,9 @@ export function applyLayClutch(who) {
 export function setClutchWeeks(clutchId, weeks) {
     const clutch = getClutches().find(c => c.id === clutchId);
     if (!clutch) return;
+    const before = clutch.weeks || 0;
     clutch.weeks = Math.max(0, Math.min(clutch.totalWeeks, parseInt(weeks) || 0));
+    if (clutch.weeks > before) revealComplications(clutch, before, clutch.weeks);
 }
 
 export function removeClutch(clutchId) {

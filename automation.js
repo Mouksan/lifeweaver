@@ -27,11 +27,12 @@ import {
     advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
     applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex, getActivePreset,
     getCharacterData, isBlocked, applyChildTraits, setTimeOfDay, setRpTime, autoArchiveGrownChildren,
-    migrateLegacyClutch, getClutches,
+    migrateLegacyClutch, getClutches, takeTest, doctorVisit,
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
 import { showNotification, showBirthDialog } from './notifications.js';
+import { TEST_LABELS } from './health.js';
 
 const HISTORY_CAP = 25;
 
@@ -239,6 +240,30 @@ function applyScanResult(result, debug = null) {
             }
         }
         if (knownTag) setPregnancyKnown(who, true);
+
+        // Тест на беременность в сцене
+        const testTag = isChar ? result.charTest : result.test;
+        if (testTag) {
+            const r = takeTest(who);
+            log(`${who}: тест — ${TEST_LABELS[r] || r}`);
+            notify(`<i class="fa-solid fa-vial"></i> Тест: ${TEST_LABELS[r] || r}`, r === 'negative' ? 'info' : 'success');
+        }
+
+        // Визит к врачу/целителю: лечим тело и все кладки этого носителя
+        const doctorTag = isChar ? result.charDoctor : result.doctor;
+        if (doctorTag) {
+            let healed = 0, failed = 0;
+            const body = doctorVisit(who);
+            healed += body.healed; failed += body.failed;
+            for (const c of getClutches().filter(cl => cl.parentWho === who)) {
+                const r = doctorVisit(c.id);
+                healed += r.healed; failed += r.failed;
+            }
+            if (healed || failed) {
+                log(`${who}: лечение — вылечено ${healed}, осталось ${failed}`);
+                notify(`<i class="fa-solid fa-stethoscope"></i> Вылечено: ${healed}${failed ? `, осталось: ${failed}` : ''}`, failed ? 'info' : 'success');
+            }
+        }
     }
 
     // Дозаполнение черт детей, описанных моделью позже (поэтапное вылупление)

@@ -24,8 +24,9 @@
 
 import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { extensionName, CONTRACEPTION_TYPES } from './config.js';
-import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid } from './state.js';
+import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid, getHealthHolders, predictTest } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
+import { activeComplications, TEST_LABELS } from './health.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, timeBucket, formatAge, sexLabel } from './baby-care.js';
 
 function designationLabelEn(d) {
@@ -97,6 +98,43 @@ function clutchesContext(preset) {
         b += `• ${c.offspringCount} ${preset.offspringLabel.toLowerCase()} laid by ${parent} — ${label.toLowerCase()} ${c.weeks}/${c.totalWeeks} weeks.\n`;
     }
     b += `The carrier's body is free again — they are no longer pregnant and could conceive anew, though the nest and the eggs take most of their attention.\n`;
+    return b;
+}
+
+// ─── Здоровье: активные осложнения тела и кладок ───
+function healthContext(preset) {
+    const holders = getHealthHolders();
+    const lines = [];
+    for (const h of holders) {
+        const active = activeComplications(h.holder);
+        if (!active.length) continue;
+        const bits = active.map(c => `${c.type}${c.severity === 'critical' ? ' (critical)' : ''}`).join(', ');
+        lines.push(`• ${h.label}: ${bits}.`);
+    }
+    if (!lines.length) return '';
+    return `\nActive complications — weave them into the scene physically, they are not just labels:\n${lines.join('\n')}\nA visit to a doctor, healer or midwife can treat these; nothing else resolves them on its own.\n`;
+}
+
+// ─── Теги здоровья: тест и визит к врачу ───
+function healthTagBlock(preset) {
+    let b = '';
+    for (const who of ['user', 'char']) {
+        const character = getCharacterData(who);
+        const name = who === 'char' ? '{{char}}' : '{{user}}';
+        const tagSuffix = who === 'char' ? ':CHAR' : '';
+        const p = character.pregnancy;
+
+        // Тест имеет смысл, пока о беременности не знают наверняка
+        if (character.canCarry && (!p?.isPregnant || !p.pregnancyKnown)) {
+            const predicted = predictTest(who);
+            b += `If ${name} actually takes a pregnancy test this reply, it reads ${TEST_LABELS[predicted].toUpperCase()} — narrate exactly that result, then add: <!-- [PREGNANCY_TEST${tagSuffix}] -->\n`;
+        }
+
+        const hasIssues = getHealthHolders().some(h => h.who === who && activeComplications(h.holder).length > 0);
+        if (hasIssues) {
+            b += `If ${name} is actually seen by a doctor, healer or midwife this reply (examined and treated, not merely mentioned), add: <!-- [DOCTOR_VISIT${tagSuffix}] -->\n`;
+        }
+    }
     return b;
 }
 
@@ -299,6 +337,7 @@ export function buildPrompt() {
     prompt += characterStatusContext('user', preset);
     prompt += characterStatusContext('char', preset);
     prompt += clutchesContext(preset);
+    prompt += healthContext(preset);
     prompt += childrenContext(preset);
     prompt += tryingContext(preset);
 
@@ -308,6 +347,7 @@ export function buildPrompt() {
     prompt += characterTagBlock('user', preset);
     prompt += characterTagBlock('char', preset);
     prompt += clutchTagBlock(preset);
+    prompt += healthTagBlock(preset);
 
     // Время суток нужно только пока есть малыши — от него зависят их потребности
     if (getChildren().some(c => (c.ageWeeks || 0) * 7 < 1095)) {

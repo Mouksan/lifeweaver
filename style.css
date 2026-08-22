@@ -1065,3 +1065,50 @@
     opacity: 0.4;
     cursor: not-allowed;
 }
+
+/* ═══ Здоровье ═══ */
+.lw-health-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.lw-health-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 0.8rem;
+    align-self: flex-start;
+    border: 1px solid var(--lw-border);
+}
+
+.lw-health-normal   { border-color: rgba(90, 168, 106, 0.5); background: rgba(90, 168, 106, 0.1); }
+.lw-health-warning  { border-color: rgba(200, 160, 70, 0.5); background: rgba(200, 160, 70, 0.1); }
+.lw-health-critical { border-color: rgba(194, 90, 74, 0.6); background: rgba(194, 90, 74, 0.13); }
+
+.lw-comp {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 9px;
+    border-radius: 5px;
+    font-size: 0.78rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 2px solid var(--lw-border);
+}
+
+.lw-comp-warning  { border-left-color: rgba(200, 160, 70, 0.8); }
+.lw-comp-critical { border-left-color: rgba(194, 90, 74, 0.9); }
+
+.lw-test-result {
+    padding: 6px 10px;
+    border-radius: 5px;
+    font-size: 0.82rem;
+    border: 1px solid var(--lw-border);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.lw-test-positive { border-color: rgba(90, 168, 106, 0.55); background: rgba(90, 168, 106, 0.12); }
+.lw-test-faint    { border-color: rgba(200, 160, 70, 0.5); background: rgba(200, 160, 70, 0.1); }

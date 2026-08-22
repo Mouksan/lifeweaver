@@ -15,11 +15,13 @@ import {
     blockRemaining, clearResurrectionBlocks, getTimeOfDay, setTimeOfDay, getRpTime, setRpTime, getTimeForCare,
     isTrying, setTrying, monthsTrying, conceptionStruggle, getFertilityAid, setFertilityAid, clearFertilityAid,
     getClutches, setClutchWeeks, hatchClutch, removeClutch, migrateLegacyClutch,
+    getHealthHolders, doctorVisit, takeTest,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, getMilestoneProgress, formatAge, sexLabel, TIME_BUCKETS } from './baby-care.js';
 import { initAutomation, refreshRegenSnapshot, clearRegenState, getLastScanDebug } from './automation.js';
-import { showBirthDialog } from './notifications.js';
+import { showBirthDialog, showNotification } from './notifications.js';
+import { activeComplications, getHealthInfo, TEST_LABELS } from './health.js';
 import { updatePromptInjection, buildPrompt } from './prompts.js';
 
 const extensionFolderPath = `scripts/extensions/${extensionName}`;
@@ -138,6 +140,10 @@ function renderContent() {
     }
     if (activeSection === 'tree') {
         renderTreeSection(preset);
+        return;
+    }
+    if (activeSection === 'health') {
+        renderHealthSection(preset);
         return;
     }
     if (activeSection === 'settings') {
@@ -871,6 +877,80 @@ function renderTreeSection(preset) {
             </div>
         </div>
     `);
+}
+
+// ─── Раздел "Здоровье" ───
+function renderHealthCard(entry, preset) {
+    const info = getHealthInfo(entry.holder.healthStatus || 'normal');
+    const active = activeComplications(entry.holder);
+    const resolved = (entry.holder.complications || []).filter(c => c.resolved);
+    const target = entry.kind === 'clutch' ? entry.id : entry.who;
+
+    const listHtml = active.length
+        ? active.map(c => `
+            <div class="lw-comp lw-comp-${c.severity}">
+                <i class="fa-solid ${c.severity === 'critical' ? 'fa-circle-exclamation' : 'fa-triangle-exclamation'}"></i>
+                <span>${c.type}</span>
+                <span class="lw-dim">с ${c.week} нед.</span>
+            </div>`).join('')
+        : '<div class="lw-dim">Осложнений нет.</div>';
+
+    return `
+        <div class="lw-card lw-health-card" style="--lw-card-accent: ${preset.color}">
+            <div class="lw-card-label">${entry.label}</div>
+            <div class="lw-health-status lw-health-${info.tone}">
+                <i class="fa-solid ${info.icon}"></i> ${info.text}
+            </div>
+            ${listHtml}
+            ${resolved.length ? `<div class="lw-dim" style="font-size:0.72rem;">Вылечено ранее: ${resolved.map(c => c.type).join(', ')}</div>` : ''}
+            ${active.length ? `<button type="button" class="lw-btn lw-doctor-visit" data-target="${target}">
+                <i class="fa-solid fa-stethoscope"></i> Визит к врачу
+            </button>` : ''}
+        </div>
+    `;
+}
+
+function renderTestCard(who, preset) {
+    const character = getCharacterData(who);
+    if (!character.canCarry) return '';
+    const p = character.pregnancy;
+    const last = p?.lastTestResult;
+    return `
+        <div class="lw-card" style="--lw-card-accent: ${preset.color}">
+            <div class="lw-card-label">${carrierDisplayName(who)}</div>
+            ${last ? `<div class="lw-test-result lw-test-${last}">${TEST_LABELS[last]} <span class="lw-dim">· день ${p.lastTestRpDay}</span></div>` : '<div class="lw-dim">Тест ещё не делали.</div>'}
+            <button type="button" class="lw-btn lw-take-test" data-who="${who}"><i class="fa-solid fa-vial"></i> Сделать тест</button>
+        </div>
+    `;
+}
+
+function renderHealthSection(preset) {
+    const holders = getHealthHolders();
+    const testsHtml = ['user', 'char'].map(w => renderTestCard(w, preset)).filter(Boolean).join('');
+
+    $('#lw_content').html(`
+        <h2 class="lw-content-title">Здоровье</h2>
+        ${holders.length ? `<div class="lw-cycle-grid">${holders.map(h => renderHealthCard(h, preset)).join('')}</div>`
+            : '<div class="lw-empty"><i class="fa-solid fa-heart-pulse"></i><p>Сейчас нечего отслеживать — ни беременности, ни кладки.</p></div>'}
+        ${testsHtml ? `<h3 class="lw-content-subtitle">Тесты на беременность</h3><div class="lw-cycle-grid">${testsHtml}</div>` : ''}
+        <p class="lw-placeholder-note">Осложнения определяются один раз при зачатии и проявляются по мере срока. Врач лечит обычное с шансом 75%, критическое — 50%.</p>
+    `);
+
+    $('.lw-doctor-visit').on('click', function () {
+        const r = doctorVisit($(this).data('target'));
+        saveSettings();
+        showNotification(r.healed
+            ? `<i class="fa-solid fa-stethoscope"></i> Вылечено: ${r.healed}${r.failed ? `, осталось: ${r.failed}` : ''}`
+            : '<i class="fa-solid fa-stethoscope"></i> Лечение не помогло', r.healed ? 'success' : 'warning');
+        renderContent();
+    });
+    $('.lw-take-test').on('click', function () {
+        const who = $(this).data('who');
+        const r = takeTest(who);
+        saveSettings();
+        showNotification(`<i class="fa-solid fa-vial"></i> Тест: ${TEST_LABELS[r]}`, r === 'negative' ? 'info' : 'success');
+        renderContent();
+    });
 }
 
 // ─── Раздел "Настройки" ───

@@ -31,7 +31,7 @@
 //  - Нет SEX_REVEAL/BABY_TRAITS пока — вернутся отдельным заходом вместе
 //    с полями пола/черт в данных ребёнка.
 
-const KNOWN_TAGS = ['DAYS_PASSED', 'CONCEPTION_CHECK', 'LAY_CLUTCH', 'BIRTH', 'MISCARRIAGE', 'ABORTION', 'PREGNANCY_KNOWN', 'SEX_REVEAL', 'BABY_TRAITS', 'CHILD_TRAITS', 'TIME_OF_DAY'];
+const KNOWN_TAGS = ['DAYS_PASSED', 'CONCEPTION_CHECK', 'LAY_CLUTCH', 'BIRTH', 'MISCARRIAGE', 'ABORTION', 'PREGNANCY_KNOWN', 'SEX_REVEAL', 'BABY_TRAITS', 'CHILD_TRAITS', 'TIME_OF_DAY', 'PREGNANCY_TEST', 'DOCTOR_VISIT'];
 // После имени тега может идти произвольная нагрузка: число (DAYS_PASSED:14),
 // список полов (SEX_REVEAL:M,F) или целый JSON (BABY_TRAITS:{...}).
 // Раньше тут допускались только цифры — теги с буквами и JSON не
@@ -290,13 +290,18 @@ export function scanMessage(text) {
         charBabyTraits: scanBabyTraits(text, true),
         childTraits: scanChildTraits(text),
         timeOfDay: extractTimeOfDay(text),
+        test: has('PREGNANCY_TEST', false),
+        charTest: has('PREGNANCY_TEST', true),
+        doctor: has('DOCTOR_VISIT', false),
+        charDoctor: has('DOCTOR_VISIT', true),
         daysPassed: scanDaysPassed(text),
     };
 
     const anyEvent = result.conception || result.charConception || result.layClutch || result.charLayClutch
         || result.birth || result.charBirth || result.miscarriage || result.charMiscarriage
         || result.abortion || result.charAbortion || result.known || result.charKnown
-        || result.sexRevealed || result.charSexRevealed || (result.childTraits && result.childTraits.length) || result.timeOfDay;
+        || result.sexRevealed || result.charSexRevealed || (result.childTraits && result.childTraits.length) || result.timeOfDay
+        || result.test || result.charTest || result.doctor || result.charDoctor;
     if (!anyEvent && result.daysPassed === 0) return null;
 
     return result;

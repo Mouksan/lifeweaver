@@ -127,9 +127,8 @@ function characterTagBlock(who, preset) {
             b += `If ${name} actually lays/spawns the clutch THIS reply${urgency} (the ${preset.offspringLabel.toLowerCase()} come out — not just contractions or the urge), add: <!-- [LAY_CLUTCH${tagSuffix}] -->\n`;
         } else {
             const verb = preset.gestationType === 'staged' ? 'hatch' : 'are born';
-            b += `If the offspring actually ${verb} THIS reply${urgency} (out and separate — not just labor or contractions), add: <!-- [BIRTH${tagSuffix}] -->\n`;
-            b += `Together with the birth tag, add this one describing the newborn(s) (values in Russian; "name" empty if not named yet; ${pregnancy.offspringCount} entr${pregnancy.offspringCount === 1 ? 'y' : 'ies'}):\n`;
-            b += `<!-- [BABY_TRAITS${tagSuffix}:{"babies":[{"name":"","fatherName":"","personality":["...","..."],"appearance":["...","...","..."]}]}] -->\n`;
+            b += `If the offspring actually ${verb} THIS reply${urgency} (out and separate — not just labor or contractions), add: <!-- [BIRTH${tagSuffix}] --> — this single short tag is what matters most; never skip it because a longer optional tag felt like too much.\n`;
+            b += `OPTIONAL, only if the birth tag is already there: <!-- [BABY_TRAITS${tagSuffix}:{"babies":[{"name":"","personality":["…"],"appearance":["…"]}]}] --> (values in Russian, ${pregnancy.offspringCount} entr${pregnancy.offspringCount === 1 ? 'y' : 'ies'}).\n`;
         }
 
         // Прерывание: формулировки зависят от стадии — на инкубации теряют

@@ -26,8 +26,9 @@ import {
     getSettings, getChatData, getCurrentChatId,
     advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
     applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex, getActivePreset,
+    getCharacterData, isBlocked,
 } from './state.js';
-import { scanMessage, stripOurTags, hasOurTags, stripThink } from './scanner.js';
+import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
 import { showNotification, showBirthDialog } from './notifications.js';
 
@@ -146,10 +147,14 @@ function notifyStateChanged() {
 
 // Применяет разобранный результат скана. Порядок значим: потеря беременности —
 // раньше остальных событий этого персонажа (взаимоисключающе с кладкой/родами).
-function applyScanResult(result) {
+function applyScanResult(result, debug = null) {
     if (!result) return;
+    const log = (msg) => { if (debug) debug.применено.push(msg); };
 
-    if (result.daysPassed > 0) advanceTimeByDays(result.daysPassed);
+    if (result.daysPassed > 0) {
+        advanceTimeByDays(result.daysPassed);
+        log(`время +${result.daysPassed} дн.`);
+    }
     let pendingBirth = null;
 
     for (const who of ['user', 'char']) {
@@ -173,22 +178,50 @@ function applyScanResult(result) {
         if (conceptionTag) {
             if (applyConception(who)) {
                 const hidden = getSettings().hiddenPregnancy;
+                log(`${who}: зачатие применено`);
                 notify(hidden
                     ? '<i class="fa-solid fa-user-secret"></i> Зачатие произошло — но он пока не знает'
                     : '<i class="fa-solid fa-check"></i> Зачатие произошло!', 'success');
+            } else {
+                const c = getCharacterData(who);
+                const why = !c.canCarry ? 'не отмечен носителем'
+                    : c.pregnancy?.isPregnant ? 'уже беременен'
+                    : isBlocked('conception', who) ? 'блок после недавней потери'
+                    : 'неизвестно';
+                log(`${who}: ЗАЧАТИЕ ОТКЛОНЕНО — ${why}`);
             }
         }
         // Раскрытие пола — до родов, чтобы дети создались с уже открытым полом
         const sexTag = isChar ? result.charSexRevealed : result.sexRevealed;
-        if (sexTag) revealOffspringSex(who, result.revealedSexes);
+        if (sexTag) {
+            revealOffspringSex(who, result.revealedSexes);
+            log(`${who}: пол раскрыт`);
+        }
         if (layTag) {
-            if (applyLayClutch(who)) notify('<i class="fa-solid fa-egg"></i> Кладка отложена — началась инкубация', 'success');
+            if (applyLayClutch(who)) {
+                log(`${who}: кладка применена`);
+                notify('<i class="fa-solid fa-egg"></i> Кладка отложена — началась инкубация', 'success');
+            } else {
+                const c = getCharacterData(who);
+                const why = !c.pregnancy?.isPregnant ? 'беременности нет'
+                    : c.pregnancy.stage !== 'formation' ? 'уже в фазе инкубации'
+                    : 'вселенная без двух фаз';
+                log(`${who}: КЛАДКА ОТКЛОНЕНА — ${why}`);
+            }
         }
         if (birthTag) {
             const traits = isChar ? result.charBabyTraits : result.babyTraits;
             const created = applyBirth(who, traits);
             if (created && created.length) {
                 pendingBirth = created;
+                log(`${who}: роды применены, создано детей: ${created.length}`);
+            } else {
+                const c = getCharacterData(who);
+                const why = !c.pregnancy?.isPregnant ? 'беременности нет'
+                    : isBlocked('birth', who) ? 'БЛОК после недавней потери — снимется через несколько сообщений'
+                    : 'неизвестно';
+                log(`${who}: РОДЫ ОТКЛОНЕНЫ — ${why}`);
+                notify(`<i class="fa-solid fa-triangle-exclamation"></i> Тег родов пришёл, но не применён: ${why}`, 'warning');
             }
         }
         if (knownTag) setPregnancyKnown(who, true);
@@ -246,10 +279,25 @@ function stripTagsFromDom(index) {
     } catch (e) { /* ignore */ }
 }
 
-function runScan() {
+// ── Диагностика: что произошло на последнем скане (для панели и консоли) ──
+let _lastDebug = null;
+
+export function getLastScanDebug() {
+    return _lastDebug;
+}
+
+function logDebug(entry) {
+    _lastDebug = entry;
+    console.log('[Lifeweaver] СКАН:', entry);
+}
+
+function runScan(trigger = '?') {
     try {
         const settings = getSettings();
-        if (!settings.isEnabled) return;
+        if (!settings.isEnabled) {
+            console.log('[Lifeweaver] скан пропущен: расширение выключено');
+            return;
+        }
 
         const ctx = getStContext();
         if (!ctx?.chat?.length) return;
@@ -258,56 +306,63 @@ function runScan() {
         const lastMessage = ctx.chat[idx];
         if (!lastMessage || !lastMessage.mes) return;
 
-        // Позиция = длина чата: реген/свайп заменяет сообщение на той же позиции
         const positionId = ctx.chat.length;
-        // Реген/свайп всегда заканчивается ботским сообщением: на юзерском флаг протух
         const isRegen = _isRegeneration && !lastMessage.is_user;
         _isRegeneration = false;
 
         const text = stripThink(rawTextOf(lastMessage));
         const textHash = simpleHash(text);
 
-        // ДЕДУП: та же позиция И тот же текст (или его версия с вырезанными
-        // тегами) → скип. Именно это спасает от накрутки дней при повторной
-        // обработке одного и того же ответа.
         if (!isRegen && _lastScannedPosition === positionId &&
             (textHash === _lastScannedHash || textHash === _lastScannedHashStripped)) {
+            console.log(`[Lifeweaver] скан пропущен (дедуп, повтор той же позиции ${positionId}), триггер: ${trigger}`);
             return;
         }
 
         const chatIdNow = getCurrentChatId();
 
-        // РЕГЕН/СВАЙП: восстанавливаем состояние ДО старого варианта ответа,
-        // прежде чем применять теги нового. Только если снапшот от этого же чата.
         if (isRegen && _preRegenSnapshot) {
             if (_snapshotChatId === chatIdNow) {
                 const chat = getChatData();
                 for (const k of Object.keys(chat)) delete chat[k];
                 Object.assign(chat, structuredClone(_preRegenSnapshot));
                 saveSettingsDebounced();
+                console.log('[Lifeweaver] реген: состояние откачено к варианту "до"');
             }
             _preRegenSnapshot = null;
         }
 
-        // Снапшот ДО обработки — для будущего регена
         _preRegenSnapshot = snapshotOfChatData();
         _snapshotChatId = chatIdNow;
 
-        // Отмечаем скан сразу
         _lastScannedPosition = positionId;
         _lastScannedHash = textHash;
         _lastScannedHashStripped = simpleHash(stripOurTags(text));
 
+        // ── Диагностика ДО применения ──
+        const described = describeScan(text);
         const result = scanMessage(text);
+        const debugEntry = {
+            триггер: trigger,
+            позиция: positionId,
+            откуда: lastMessage.is_user ? 'сообщение игрока' : 'ответ модели',
+            комментариевВТексте: described.commentsFound,
+            распознаноТегов: described.recognizedTags,
+            всеКомментарии: described.allComments,
+            хвостТекста: text.slice(-400),
+            событий: result ? Object.entries(result).filter(([k, v]) => v === true).map(([k]) => k) : [],
+            днейПрошло: result?.daysPassed || 0,
+            применено: [],
+        };
+
         if (result) {
-            applyScanResult(result);
+            applyScanResult(result, debugEntry);
             updatePromptInjection();
             notifyStateChanged();
         }
+        logDebug(debugEntry);
 
-        // История состояний ПОСЛЕ обработки — для отката при удалении
         pushStateHistory(positionId);
-
         cleanMessageTags(lastMessage);
         saveSettingsDebounced();
         try { ctx.saveChat?.(); } catch (e) { /* ignore */ }
@@ -322,13 +377,13 @@ export function initAutomation() {
         if (event_types.MESSAGE_RECEIVED) {
             eventSource.on(event_types.MESSAGE_RECEIVED, (i, type) => {
                 if (type === 'quiet') return;
-                runScan();
+                runScan('MESSAGE_RECEIVED');
             });
         }
         if (event_types.MESSAGE_SENT) {
             eventSource.on(event_types.MESSAGE_SENT, (i, type) => {
                 if (type === 'quiet') return;
-                runScan();
+                runScan('MESSAGE_SENT');
             });
         }
 
@@ -346,7 +401,7 @@ export function initAutomation() {
         }
         // GENERATION_ENDED — хук для стриминговых свайпов/continue
         if (event_types.GENERATION_ENDED) {
-            eventSource.on(event_types.GENERATION_ENDED, () => runScan());
+            eventSource.on(event_types.GENERATION_ENDED, () => runScan('GENERATION_ENDED'));
         }
 
         // Удаление сообщения — откат к снапшоту предыдущей позиции.

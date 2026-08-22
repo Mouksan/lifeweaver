@@ -74,6 +74,19 @@ export function hasOurTags(text) {
     return extractTagComments(text).length > 0;
 }
 
+// Диагностика: что именно сканер увидел в тексте. Возвращает список
+// найденных тегов и все HTML-комментарии, чтобы было видно, ставила ли
+// модель что-то похожее, но не то.
+export function describeScan(text) {
+    const comments = (text || '').match(COMMENT_RE) || [];
+    const tags = extractTagComments(text);
+    return {
+        commentsFound: comments.length,
+        allComments: comments.map(c => c.length > 160 ? c.slice(0, 160) + '…' : c),
+        recognizedTags: tags.map(t => t.name + (t.isChar ? ':CHAR' : '') + (t.payload ? ` (${t.payload.slice(0, 60)})` : '')),
+    };
+}
+
 // Вырезает содержимое think/reasoning-блоков ПЕРЕД сканом — портировано у
 // вдохновителя почти дословно. Модели-ризонеры иногда "репетируют" тег в
 // думалке, не решаясь на него в самом ответе; без этой чистки сканер видел

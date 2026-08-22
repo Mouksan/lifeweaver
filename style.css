@@ -911,3 +911,38 @@
     display: flex;
     gap: 10px;
 }
+
+/* ═══ Диагностика ═══ */
+.lw-debug-box {
+    font-family: var(--lw-font-mono);
+    font-size: 0.72rem;
+    line-height: 1.6;
+    padding: 12px 14px;
+    border: 1px solid var(--lw-border);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.22);
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.lw-debug-row {
+    margin-top: 6px;
+}
+
+.lw-debug-comment {
+    padding: 3px 6px;
+    margin: 3px 0;
+    border-left: 2px solid var(--lw-accent);
+    background: rgba(255, 255, 255, 0.03);
+    word-break: break-all;
+}
+
+.lw-debug-tail {
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding: 8px 10px;
+    margin-top: 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--lw-text-dim);
+}

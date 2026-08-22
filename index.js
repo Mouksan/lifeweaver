@@ -15,8 +15,8 @@ import {
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getMilestoneProgress, formatAge, sexLabel } from './baby-care.js';
-import { initAutomation, refreshRegenSnapshot, clearRegenState } from './automation.js';
-import { updatePromptInjection } from './prompts.js';
+import { initAutomation, refreshRegenSnapshot, clearRegenState, getLastScanDebug } from './automation.js';
+import { updatePromptInjection, buildPrompt } from './prompts.js';
 
 const extensionFolderPath = `scripts/extensions/${extensionName}`;
 
@@ -726,9 +726,49 @@ function renderSettingsSection() {
             <h3 class="lw-content-subtitle">Кастомная вселенная</h3>
             ${renderCustomPresetForm(customDraft)}
         </div>
+
+        <div class="lw-settings-group">
+            <h3 class="lw-content-subtitle">Диагностика</h3>
+            <p class="lw-placeholder-note">Что расширение увидело в последнем сообщении. Если событие не сработало — смотри сюда.</p>
+            <div id="lw_debug_box" class="lw-debug-box">${renderDebugBox()}</div>
+            <div class="lw-child-actions" style="margin-top: 10px;">
+                <button type="button" class="lw-btn lw-btn-muted" id="lw_debug_refresh">Обновить</button>
+                <button type="button" class="lw-btn lw-btn-muted" id="lw_debug_prompt">Показать промпт</button>
+                <button type="button" class="lw-btn lw-btn-muted" id="lw_debug_copy">Скопировать всё</button>
+            </div>
+        </div>
     `);
 
     bindSettingsEvents();
+}
+
+function renderDebugBox() {
+    const d = getLastScanDebug();
+    if (!d) return '<div class="lw-dim">Пока ничего не сканировалось. Отправь сообщение в чат и вернись сюда.</div>';
+
+    const tags = d.распознаноТегов?.length ? d.распознаноТегов.join(', ') : '— теги не найдены';
+    const applied = d.применено?.length ? d.применено.map(a => `<div>• ${escapeHtml(a)}</div>`).join('') : '<div class="lw-dim">— ничего не применено</div>';
+    const comments = d.всеКомментарии?.length
+        ? d.всеКомментарии.map(c => `<div class="lw-debug-comment">${escapeHtml(c)}</div>`).join('')
+        : '<div class="lw-dim">— HTML-комментариев в сообщении нет вообще</div>';
+
+    return `
+        <div class="lw-debug-row"><span class="lw-dim">Триггер:</span> ${escapeHtml(d.триггер)} · позиция ${d.позиция} · ${escapeHtml(d.откуда)}</div>
+        <div class="lw-debug-row"><span class="lw-dim">Распознано тегов:</span> ${escapeHtml(tags)}</div>
+        <div class="lw-debug-row"><span class="lw-dim">Дней прошло:</span> ${d.днейПрошло}</div>
+        <div class="lw-debug-row"><span class="lw-dim">Применено:</span></div>
+        ${applied}
+        <div class="lw-debug-row"><span class="lw-dim">Все комментарии в тексте (${d.комментариевВТексте}):</span></div>
+        ${comments}
+        <div class="lw-debug-row"><span class="lw-dim">Хвост текста:</span></div>
+        <div class="lw-debug-tail">${escapeHtml(d.хвостТекста || '')}</div>
+    `;
+}
+
+function escapeHtml(str) {
+    return String(str ?? '').replace(/[&<>"']/g, c => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
 }
 
 // ── Конструктор кастомной вселенной (5-й слот) ──
@@ -881,6 +921,27 @@ function bindSettingsEvents() {
     }
 
     bindCustomPresetEvents();
+
+    $('#lw_debug_refresh').on('click', () => {
+        $('#lw_debug_box').html(renderDebugBox());
+    });
+    $('#lw_debug_prompt').on('click', () => {
+        const prompt = buildPrompt();
+        $('#lw_debug_box').html(`<div class="lw-debug-tail">${escapeHtml(prompt || '(промпт пуст — расширение выключено?)')}</div>`);
+    });
+    $('#lw_debug_copy').on('click', async () => {
+        const d = getLastScanDebug();
+        const payload = `=== LIFEWEAVER ДИАГНОСТИКА ===\n\nПОСЛЕДНИЙ СКАН:\n${JSON.stringify(d, null, 2)}\n\nТЕКУЩИЙ ПРОМПТ:\n${buildPrompt()}`;
+        try {
+            await navigator.clipboard.writeText(payload);
+            $('#lw_debug_copy').text('Скопировано');
+            setTimeout(() => $('#lw_debug_copy').text('Скопировать всё'), 1500);
+        } catch (e) {
+            console.log('[Lifeweaver] ДИАГНОСТИКА:\n' + payload);
+            $('#lw_debug_copy').text('Вывела в консоль');
+            setTimeout(() => $('#lw_debug_copy').text('Скопировать всё'), 1800);
+        }
+    });
 }
 
 // ─── Открытие/закрытие модалки ───

@@ -178,6 +178,9 @@ export function startPregnancy(who) {
     clearResurrectionBlocks(who);
     // Плашка о прошлой потере тоже неактуальна
     clearLastLoss(who);
+    // Средство сработало — снимаем; планировать больше нечего
+    clearFertilityAid(who);
+    if (isTrying()) setTrying(false);
 }
 
 // Снять блоки анти-воскрешения для носителя
@@ -230,25 +233,12 @@ export function setPregnancyWeeks(who, weeks) {
 // Максимум недель ДЛЯ ТЕКУЩЕЙ ФАЗЫ (а не суммарно) — у staged это либо
 // длительность формирования, либо длительность кладки/инкубации, у live — общий срок.
 export function currentStageMaxWeeks(preset, pregnancy) {
-    if (preset.gestationType === 'staged') {
-        return pregnancy.stage === 'clutch' ? preset.stages.second.weeks : preset.stages.first.weeks;
-    }
+    // У двухфазных вселенных беременность теперь — ТОЛЬКО фаза формирования:
+    // инкубация вынесена в отдельные кладки (см. getClutches).
+    if (preset.gestationType === 'staged') return preset.stages.first.weeks;
     return getTotalWeeks(preset, getSettings().pregnancyDuration);
 }
 
-// Кладка/нерест — явное событие завершения первой фазы (формирования).
-// Само по себе НЕ переходит в роды: обнуляет счётчик и начинает отсчёт
-// инкубации отдельно, только после того как игрок сам это подтвердил.
-export function advanceToClutch(who) {
-    const preset = getActivePreset();
-    if (preset.gestationType !== 'staged') return;
-    const character = getCharacterData(who);
-    const pregnancy = character.pregnancy;
-    if (!pregnancy?.isPregnant || pregnancy.stage !== 'formation') return;
-    if (pregnancy.weeks < preset.stages.first.weeks) return;
-    pregnancy.stage = 'clutch';
-    pregnancy.weeks = 0;
-}
 
 export function setOffspringCount(who, count) {
     const preset = getActivePreset();
@@ -464,7 +454,7 @@ export function disableCustomPreset() {
 // ═══════════════════════════════════════════
 // АВТОМАТИКА — продвижение времени и применение событий от сканера.
 // Всё ниже переиспользует уже существующие ручные функции (startPregnancy,
-// advanceToClutch, completeBirth, endPregnancy, setCycleDay, setPregnancyWeeks) —
+// applyLayClutch, completeBirth, endPregnancy, setCycleDay, setPregnancyWeeks) —
 // автоматика просто вызывает их за игрока с дополнительными защитными проверками.
 // ═══════════════════════════════════════════
 
@@ -489,7 +479,7 @@ export function isPregnancyObvious(who) {
     if (!pregnancy?.isPregnant) return false;
     if (pregnancy.pregnancyKnown) return true;
     // Кладка уже отложена — тут скрывать нечего по определению
-    if (preset.gestationType === 'staged' && pregnancy.stage === 'clutch') return true;
+    if (preset.gestationType === 'staged' && getClutchesOf(who).length > 0) return true;
     const obviousAt = Math.max(1, parseInt(getSettings().obviousAtWeek) || 12);
     return pregnancy.weeks >= obviousAt;
 }
@@ -582,6 +572,67 @@ export function getTimeForCare() {
     return getRpTime() || getTimeOfDay();
 }
 
+// ═══════════════════════════════════════════
+// РЕЖИМ «ПЛАНИРУЕМ» + СРЕДСТВА ФЕРТИЛЬНОСТИ
+// ═══════════════════════════════════════════
+
+export function isTrying() {
+    return !!getChatData().tryingToConceive;
+}
+
+export function setTrying(value) {
+    const chat = getChatData();
+    chat.tryingToConceive = !!value;
+    // Счётчик «сколько уже пытаются» стартует с момента включения
+    chat.tryingSinceRpDay = value ? (chat.rpDay || 0) : null;
+    return chat.tryingToConceive;
+}
+
+// Сколько RP-месяцев пара пытается (30 дней = месяц)
+export function monthsTrying() {
+    const chat = getChatData();
+    if (!chat.tryingToConceive || chat.tryingSinceRpDay === null) return 0;
+    return Math.floor(((chat.rpDay || 0) - chat.tryingSinceRpDay) / 30);
+}
+
+// Намёки о сложностях с зачатием — пороги вдохновителя (полгода / год)
+export function conceptionStruggle(months) {
+    const m = Math.max(0, parseInt(months) || 0);
+    if (m < 6) return null;
+    if (m < 12) return { level: 'concern', label: 'Полгода без результата — стоит провериться' };
+    return { level: 'serious', label: 'Год без результата — повод обратиться к специалисту' };
+}
+
+// ── Средство фертильности: пилюля, зелье, ритуал, заклинание ──
+// Именно так в мпрег-вселенных «включается» возможность зачатия: выпил,
+// подействовало, дальше шанс близок к гарантии.
+export function getFertilityAid(who) {
+    const aid = getCharacterData(who).fertilityAid;
+    if (!aid) return null;
+    if (aid.untilRpDay !== null && aid.untilRpDay !== undefined) {
+        if ((getChatData().rpDay || 0) > aid.untilRpDay) return null; // истекло
+    }
+    return aid;
+}
+
+export function setFertilityAid(who, label, durationDays = null) {
+    const character = getCharacterData(who);
+    if (!label || !String(label).trim()) {
+        character.fertilityAid = null;
+        return null;
+    }
+    const days = parseInt(durationDays);
+    character.fertilityAid = {
+        label: String(label).trim(),
+        untilRpDay: (!isNaN(days) && days > 0) ? (getChatData().rpDay || 0) + days : null,
+    };
+    return character.fertilityAid;
+}
+
+export function clearFertilityAid(who) {
+    getCharacterData(who).fertilityAid = null;
+}
+
 export function getTimeOfDay() {
     return getChatData().timeOfDay || 'day';
 }
@@ -606,6 +657,20 @@ export function advanceTimeByDays(days) {
     advancePregnancyByDays('user', days);
     advancePregnancyByDays('char', days);
     advanceChildrenAgeByDays(days);
+    advanceClutchesByDays(days);
+}
+
+// Инкубация кладок идёт своим ходом, независимо от тела носителя
+function advanceClutchesByDays(days) {
+    if (days <= 0) return;
+    for (const clutch of getClutches()) {
+        const total = (clutch._dayRemainder || 0) + days;
+        const addWeeks = Math.floor(total / 7);
+        clutch._dayRemainder = total % 7;
+        if (addWeeks > 0) {
+            clutch.weeks = Math.min(clutch.totalWeeks, (clutch.weeks || 0) + addWeeks);
+        }
+    }
 }
 
 // ── Применение событий сканера — с защитными проверками поверх ручных функций ──
@@ -624,20 +689,106 @@ export function applyConception(who) {
     return true;
 }
 
-// Кладка/нерест: только для staged-вселенных и только из фазы формирования.
-// Срок НЕ проверяем (как вдохновитель с родами) — кладка может случиться
-// раньше по сюжету, а главное: событие и достижение срока приходят в одном
-// сообщении, так что жёсткая проверка отбрасывала бы легитимный тег.
+// ── Кладки: инкубируются СНАРУЖИ тела, поэтому живут отдельно от pregnancy.
+// Благодаря этому носитель после нереста снова свободен и может понести.
+export function getClutches() {
+    const chat = getChatData();
+    if (!Array.isArray(chat.clutches)) chat.clutches = [];
+    return chat.clutches;
+}
+
+// Кладки конкретного носителя
+export function getClutchesOf(who) {
+    return getClutches().filter(c => c.parentWho === who);
+}
+
+// Миграция старых чатов: раньше фаза инкубации жила внутри pregnancy
+// (stage: 'clutch'). Переносим такую беременность в отдельную кладку.
+export function migrateLegacyClutch() {
+    for (const who of ['user', 'char']) {
+        const character = getCharacterData(who);
+        const pregnancy = character.pregnancy;
+        if (!pregnancy?.isPregnant || pregnancy.stage !== 'clutch') continue;
+        const preset = getActivePreset();
+        getClutches().push({
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            parentWho: who,
+            weeks: pregnancy.weeks || 0,
+            totalWeeks: preset.gestationType === 'staged' ? preset.stages.second.weeks : 20,
+            offspringCount: pregnancy.offspringCount || 1,
+            offspringSex: Array.isArray(pregnancy.offspringSex) ? [...pregnancy.offspringSex] : [],
+            universe: preset.id,
+            _dayRemainder: pregnancy._dayRemainder || 0,
+        });
+        character.pregnancy = cloneDefault(defaultPregnancyData);
+    }
+}
+
+// Кладка/нерест: беременность заканчивается, вместо неё появляется кладка.
+// Срок НЕ проверяем (как вдохновитель с родами) — событие и достижение срока
+// приходят в одном сообщении.
 export function applyLayClutch(who) {
     const preset = getActivePreset();
     if (preset.gestationType !== 'staged') return false;
     const character = getCharacterData(who);
     const pregnancy = character.pregnancy;
-    if (!pregnancy?.isPregnant || pregnancy.stage !== 'formation') return false;
-    pregnancy.stage = 'clutch';
-    pregnancy.weeks = 0;
-    pregnancy._dayRemainder = 0;
+    if (!pregnancy?.isPregnant) return false;
+
+    getClutches().push({
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        parentWho: who,
+        weeks: 0,
+        totalWeeks: preset.stages.second.weeks,
+        offspringCount: pregnancy.offspringCount || 1,
+        offspringSex: Array.isArray(pregnancy.offspringSex) ? [...pregnancy.offspringSex] : [],
+        universe: preset.id,
+        _dayRemainder: 0,
+    });
+
+    character.pregnancy = cloneDefault(defaultPregnancyData);
     return true;
+}
+
+export function setClutchWeeks(clutchId, weeks) {
+    const clutch = getClutches().find(c => c.id === clutchId);
+    if (!clutch) return;
+    clutch.weeks = Math.max(0, Math.min(clutch.totalWeeks, parseInt(weeks) || 0));
+}
+
+export function removeClutch(clutchId) {
+    const chat = getChatData();
+    chat.clutches = getClutches().filter(c => c.id !== clutchId);
+}
+
+// Вылупление конкретной кладки → дети
+export function hatchClutch(clutchId, traits = null) {
+    const clutch = getClutches().find(c => c.id === clutchId);
+    if (!clutch) return [];
+    const children = getChildren();
+    const created = [];
+    const traitList = Array.isArray(traits?.babies) ? traits.babies : [];
+
+    for (let i = 0; i < clutch.offspringCount; i++) {
+        const t = traitList[i] || {};
+        const child = {
+            id: makeChildId(),
+            name: (t.name || '').trim(),
+            sex: clutch.offspringSex?.[i] || 'unknown',
+            ageWeeks: 0,
+            parentWho: clutch.parentWho,
+            universe: clutch.universe,
+            fatherName: (t.fatherName || '').trim(),
+            personality: Array.isArray(t.personality) ? t.personality.slice(0, 4) : [],
+            appearance: Array.isArray(t.appearance) ? t.appearance.slice(0, 4) : [],
+            milestonesSeen: [],
+            notes: '',
+        };
+        children.push(child);
+        created.push(child);
+    }
+    removeClutch(clutchId);
+    clearLastLoss(clutch.parentWho);
+    return created;
 }
 
 // Роды/вылупление: доверяем нарративу — если модель говорит, что потомство
@@ -645,10 +796,21 @@ export function applyLayClutch(who) {
 // РП, ручная беременность на нестандартном сроке). Философия вдохновителя:
 // расширение должно ловить роды независимо от срока.
 export function applyBirth(who, traits = null) {
-    const character = getCharacterData(who);
-    const pregnancy = character.pregnancy;
-    if (!pregnancy?.isPregnant) return null;
     if (isBlocked('birth', who)) return null;
+    const preset = getActivePreset();
+
+    // В двухфазных вселенных рождение — это вылупление УЖЕ отложенной кладки,
+    // а не завершение беременности: беременность закончилась в момент нереста.
+    if (preset.gestationType === 'staged') {
+        const mine = getClutchesOf(who);
+        if (mine.length === 0) return null;
+        // Старейшая кладка — самая близкая к вылуплению
+        const oldest = mine.reduce((a, b) => (b.weeks > a.weeks ? b : a), mine[0]);
+        return hatchClutch(oldest.id, traits);
+    }
+
+    const pregnancy = getCharacterData(who).pregnancy;
+    if (!pregnancy?.isPregnant) return null;
     return completeBirth(who, traits);
 }
 

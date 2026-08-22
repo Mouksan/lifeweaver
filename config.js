@@ -235,6 +235,9 @@ export const defaultCharacterData = {
     // потому что один и тот же герой может быть на таблетках в одной истории
     // и без защиты в другой.
     contraception: 'none',
+    // Средство повышения фертильности: пилюля, зелье, ритуал, заклинание.
+    // { label, untilRpDay } — untilRpDay null = бессрочно, пока не снимут.
+    fertilityAid: null,
     pregnancy: { ...defaultPregnancyData },
 };
 
@@ -256,6 +259,13 @@ export const defaultChatData = {
     timeOfDay: 'day',
     // Точное RP-время 'HH:MM', если модель его сообщает (приоритетнее бакета)
     rpTime: null,
+    // Отложенные кладки, которые инкубируются СНАРУЖИ тела. Вынесены из
+    // pregnancy сознательно: после кладки носитель физически свободен и может
+    // понести снова, пока предыдущая кладка греется в гнезде.
+    clutches: [],
+    // Режим «планируем ребёнка»
+    tryingToConceive: false,
+    tryingSinceRpDay: null,
     // Последняя потеря беременности по каждому носителю — для UI и промпта:
     // { reason: 'miscarriage'|'abortion'|'manual', stage, offspringCount, rpDay }
     lastLoss: { user: null, char: null },

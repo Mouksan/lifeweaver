@@ -7,16 +7,19 @@ import {
     getSettings, getActiveUniverse, setActiveUniverse, resetChatIdCache,
     getCharacterData, setDesignation, setCycleDay, getCycleSettings, carrierDisplayName,
     setCanCarry, startPregnancy, endPregnancy, setPregnancyWeeks, setOffspringCount,
-    advanceToClutch, currentStageMaxWeeks,
+    applyLayClutch, currentStageMaxWeeks,
     completeBirth, getChildren, getGrownChildren, updateChildField, archiveChild, deleteChild, restoreChild,
     setContraception, setShowNotifications, setHiddenPregnancy, setNumericSetting,
     getCustomPresetDraft, saveCustomPreset, disableCustomPreset, getRpDay, setRpDay,
     applyMiscarriage, applyAbortion, getLastLoss, clearLastLoss, revealOffspringSex,
     blockRemaining, clearResurrectionBlocks, getTimeOfDay, setTimeOfDay, getRpTime, setRpTime, getTimeForCare,
+    isTrying, setTrying, monthsTrying, conceptionStruggle, getFertilityAid, setFertilityAid, clearFertilityAid,
+    getClutches, setClutchWeeks, hatchClutch, removeClutch, migrateLegacyClutch,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, getMilestoneProgress, formatAge, sexLabel, TIME_BUCKETS } from './baby-care.js';
 import { initAutomation, refreshRegenSnapshot, clearRegenState, getLastScanDebug } from './automation.js';
+import { showBirthDialog } from './notifications.js';
 import { updatePromptInjection, buildPrompt } from './prompts.js';
 
 const extensionFolderPath = `scripts/extensions/${extensionName}`;
@@ -270,15 +273,94 @@ function bindCycleCardEvents() {
 }
 
 // ─── Раздел "Беременность" ───
+function renderTryingPanel(preset) {
+    const on = isTrying();
+    const months = monthsTrying();
+    const struggle = conceptionStruggle(months);
+
+    // Контрацепция и планирование противоречат друг другу — подсказываем,
+    // но не мешаем: выставлять настройки это дело игрока.
+    const conflicted = on ? ['user', 'char'].filter(w => {
+        const c = getCharacterData(w);
+        return c.canCarry && (c.contraception || 'none') !== 'none';
+    }) : [];
+
+    const aidsHtml = ['user', 'char'].filter(w => getCharacterData(w).canCarry).map(w => {
+        const aid = getFertilityAid(w);
+        return `
+            <div class="lw-aid-row">
+                <span class="lw-dim">${carrierDisplayName(w)}:</span>
+                <input type="text" class="lw-input lw-aid-label" data-who="${w}"
+                       placeholder="пилюля, зелье, ритуал…" value="${aid?.label || ''}">
+                <input type="number" class="lw-input lw-aid-days" data-who="${w}" min="0"
+                       placeholder="дн." title="Сколько дней действует (пусто — бессрочно)"
+                       value="${aid?.untilRpDay !== null && aid?.untilRpDay !== undefined ? Math.max(0, aid.untilRpDay - getRpDay()) : ''}">
+                ${aid ? `<button type="button" class="lw-btn lw-btn-muted lw-aid-clear" data-who="${w}">Снять</button>` : ''}
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <div class="lw-card lw-trying-card ${on ? 'lw-trying-on' : ''}">
+            <label class="lw-checkbox-row">
+                <input type="checkbox" id="lw_trying_toggle" ${on ? 'checked' : ''}>
+                Планируем ребёнка
+            </label>
+            ${on ? `
+                <div class="lw-dim" style="font-size:0.78rem;">
+                    Пытаются ${months > 0 ? `~${months} мес.` : 'недавно'}${preset.cycleSystem === 'abo' ? ' · окно фертильности — течка' : ' · цикла нет, фертильность ровная'}
+                </div>
+                ${struggle ? `<div class="lw-struggle-note"><i class="fa-solid fa-hourglass-half"></i> ${struggle.label}</div>` : ''}
+                ${conflicted.length ? `<div class="lw-struggle-note"><i class="fa-solid fa-triangle-exclamation"></i> Контрацепция включена у: ${conflicted.map(carrierDisplayName).join(', ')}</div>` : ''}
+                <div class="lw-card-label" style="margin-top:8px;">Средства фертильности</div>
+                ${aidsHtml || '<div class="lw-dim">Никто не отмечен носителем.</div>'}
+            ` : ''}
+        </div>
+    `;
+}
+
+function renderClutchCard(clutch, preset) {
+    const parentName = carrierDisplayName(clutch.parentWho);
+    const originPreset = resolvePreset(clutch.universe);
+    const label = originPreset.gestationType === 'staged' ? originPreset.stages.second.label : 'Инкубация';
+    const ready = clutch.weeks >= clutch.totalWeeks;
+    return `
+        <div class="lw-card lw-clutch-card" style="--lw-card-accent: ${originPreset.color}">
+            <div class="lw-card-label">${label} · от ${parentName}</div>
+            <div class="lw-stage-bar">
+                <div class="lw-stage-label">${clutch.weeks}/${clutch.totalWeeks} нед. · ${clutch.offspringCount} ${(originPreset.offspringLabel || '').toLowerCase()}</div>
+                <div class="lw-bar"><div class="lw-bar-fill" style="width:${(clutch.weeks / clutch.totalWeeks) * 100}%"></div></div>
+            </div>
+            <div class="lw-day-control">
+                <label>Неделя:</label>
+                <input type="number" class="lw-input lw-clutch-weeks" data-id="${clutch.id}" min="0" max="${clutch.totalWeeks}" value="${clutch.weeks}">
+            </div>
+            <div class="lw-child-actions">
+                <button type="button" class="lw-btn lw-hatch-clutch" data-id="${clutch.id}" ${ready ? '' : 'disabled'}>
+                    Вылупление — записать ${clutch.offspringCount}
+                </button>
+                <button type="button" class="lw-btn lw-btn-danger lw-clutch-lost" data-id="${clutch.id}">Кладка погибла</button>
+            </div>
+        </div>
+    `;
+}
+
 function renderPregnancySection(preset) {
     const settings = getSettings();
+    const clutches = getClutches();
     $('#lw_content').html(`
         <h2 class="lw-content-title">Беременность</h2>
+        ${renderTryingPanel(preset)}
         <div class="lw-cycle-grid" id="lw_pregnancy_grid"></div>
+        ${clutches.length ? `<h3 class="lw-content-subtitle">Инкубация</h3><div class="lw-cycle-grid" id="lw_clutch_grid"></div>` : ''}
     `);
     const $grid = $('#lw_pregnancy_grid');
     $grid.append(renderPregnancyCard('user', preset, settings));
     $grid.append(renderPregnancyCard('char', preset, settings));
+    if (clutches.length) {
+        const $cg = $('#lw_clutch_grid');
+        for (const c of clutches) $cg.append(renderClutchCard(c, preset));
+    }
     bindPregnancyEvents();
 }
 
@@ -330,17 +412,13 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
     const isStageFullTerm = pregnancy.weeks >= stageMax;
 
     if (preset.gestationType === 'staged') {
-        const s1 = preset.stages.first, s2 = preset.stages.second;
-        const w1 = pregnancy.stage === 'formation' ? pregnancy.weeks : s1.weeks;
-        const w2 = pregnancy.stage === 'clutch' ? pregnancy.weeks : 0;
+        // Беременность у двухфазных = только формирование; инкубация живёт
+        // отдельной карточкой (кладка уже снаружи тела).
+        const s1 = preset.stages.first;
         barsHtml = `
             <div class="lw-stage-bar">
-                <div class="lw-stage-label">${s1.label} <span class="lw-dim">${w1}/${s1.weeks} нед.</span></div>
-                <div class="lw-bar"><div class="lw-bar-fill" style="width:${(w1 / s1.weeks) * 100}%"></div></div>
-            </div>
-            <div class="lw-stage-bar ${pregnancy.stage === 'clutch' ? '' : 'lw-stage-pending'}">
-                <div class="lw-stage-label">${s2.label} <span class="lw-dim">${w2}/${s2.weeks} нед.</span></div>
-                <div class="lw-bar"><div class="lw-bar-fill" style="width:${(w2 / s2.weeks) * 100}%"></div></div>
+                <div class="lw-stage-label">${s1.label} <span class="lw-dim">${pregnancy.weeks}/${s1.weeks} нед.</span></div>
+                <div class="lw-bar"><div class="lw-bar-fill" style="width:${(pregnancy.weeks / s1.weeks) * 100}%"></div></div>
             </div>
         `;
     } else {
@@ -356,12 +434,12 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
     // Три состояния кнопок: обычная фаза / формирование завершено, пора класть/метать
     // икру (staged) / текущая фаза завершена и это уже роды-вылупление.
     let actionsHtml;
-    if (preset.gestationType === 'staged' && pregnancy.stage === 'formation' && isStageFullTerm) {
+    if (preset.gestationType === 'staged') {
         const layVerb = preset.id === 'merfolk' ? 'Нерест' : 'Кладка';
-        actionsHtml = `
-            <button type="button" class="lw-btn lw-lay-clutch" data-who="${who}">${layVerb} — начать инкубацию</button>
-            <button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить без кладки</button>
-        `;
+        actionsHtml = isStageFullTerm ? `
+            <button type="button" class="lw-btn lw-lay-clutch" data-who="${who}">${layVerb} — отложить ${pregnancy.offspringCount}</button>
+            <button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить</button>
+        ` : `<button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить (тест)</button>`;
     } else if (isStageFullTerm) {
         const birthVerb = preset.gestationType === 'staged' ? 'Вылупление' : 'Роды';
         actionsHtml = `
@@ -373,7 +451,7 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
     }
 
     // Прерывание доступно на любом сроке и любой стадии
-    const inClutch = preset.gestationType === 'staged' && pregnancy.stage === 'clutch';
+    const inClutch = false; // прерывание кладки живёт на карточке кладки
     actionsHtml += `
         <div class="lw-loss-actions">
             <button type="button" class="lw-btn lw-btn-danger lw-miscarriage" data-who="${who}">${inClutch ? 'Кладка погибла' : 'Выкидыш'}</button>
@@ -434,8 +512,7 @@ function bindPregnancyEvents() {
         renderContent();
     });
     $('.lw-lay-clutch').on('click', function () {
-        const who = $(this).data('who');
-        advanceToClutch(who);
+        applyLayClutch($(this).data('who'));
         saveSettings();
         renderContent();
     });
@@ -450,6 +527,51 @@ function bindPregnancyEvents() {
     $('.lw-weeks-input').on('change', function () {
         const who = $(this).data('who');
         setPregnancyWeeks(who, $(this).val());
+        saveSettings();
+        renderContent();
+    });
+    $('#lw_trying_toggle').on('change', function () {
+        setTrying($(this).is(':checked'));
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-aid-label, .lw-aid-days').on('change', function () {
+        const who = $(this).data('who');
+        const label = $(`.lw-aid-label[data-who="${who}"]`).val();
+        const days = $(`.lw-aid-days[data-who="${who}"]`).val();
+        setFertilityAid(who, label, days);
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-aid-clear').on('click', function () {
+        clearFertilityAid($(this).data('who'));
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-clutch-weeks').on('change', function () {
+        setClutchWeeks($(this).data('id'), $(this).val());
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-hatch-clutch').on('click', function () {
+        const created = hatchClutch($(this).data('id'));
+        saveSettings();
+        if (created.length) {
+            showBirthDialog(created, resolvePreset(getActiveUniverse()), (names) => {
+                if (Array.isArray(names)) {
+                    names.forEach((n, i) => { if (n && created[i]) created[i].name = n; });
+                    saveSettings();
+                }
+                activeSection = 'child';
+                renderSidebar();
+                renderContent();
+            });
+        } else {
+            renderContent();
+        }
+    });
+    $('.lw-clutch-lost').on('click', function () {
+        removeClutch($(this).data('id'));
         saveSettings();
         renderContent();
     });
@@ -675,7 +797,7 @@ function renderPendingNode(who, preset) {
     const pregnancy = data.pregnancy;
     const stageMax = currentStageMaxWeeks(preset, pregnancy);
     const stageLabel = preset.gestationType === 'staged'
-        ? (pregnancy.stage === 'clutch' ? preset.stages.second.label : preset.stages.first.label)
+        ? preset.stages.first.label
         : 'Беременность';
     return `
         <div class="lw-tree-node lw-tree-node-pending" style="--lw-card-accent: ${preset.color}">
@@ -1076,6 +1198,8 @@ function bindSettingsUI() {
         const context = SillyTavern.getContext();
         context.eventSource?.on(context.eventTypes?.CHAT_CHANGED, () => {
             resetChatIdCache();
+            // Старые чаты: инкубация раньше жила внутри беременности
+            migrateLegacyClutch();
             // Снапшоты и позиции скана из прошлого чата не должны пережить переход,
             // иначе состояние утекает между чатами.
             clearRegenState();

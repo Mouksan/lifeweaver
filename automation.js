@@ -27,6 +27,7 @@ import {
     advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
     applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex, getActivePreset,
     getCharacterData, isBlocked, applyChildTraits, setTimeOfDay, setRpTime, autoArchiveGrownChildren,
+    migrateLegacyClutch,
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
@@ -214,12 +215,10 @@ function applyScanResult(result, debug = null) {
         if (layTag) {
             if (applyLayClutch(who)) {
                 log(`${who}: кладка применена`);
-                notify('<i class="fa-solid fa-egg"></i> Кладка отложена — началась инкубация', 'success');
+                notify('<i class="fa-solid fa-egg"></i> Кладка отложена — идёт инкубация, тело носителя свободно', 'success');
             } else {
                 const c = getCharacterData(who);
-                const why = !c.pregnancy?.isPregnant ? 'беременности нет'
-                    : c.pregnancy.stage !== 'formation' ? 'уже в фазе инкубации'
-                    : 'вселенная без двух фаз';
+                const why = !c.pregnancy?.isPregnant ? 'беременности нет' : 'вселенная без двух фаз';
                 log(`${who}: КЛАДКА ОТКЛОНЕНА — ${why}`);
             }
         }
@@ -399,6 +398,7 @@ function runScan(trigger = '?') {
 
 export function initAutomation() {
     try {
+        migrateLegacyClutch();
         if (event_types.MESSAGE_RECEIVED) {
             eventSource.on(event_types.MESSAGE_RECEIVED, (i, type) => {
                 if (type === 'quiet') return;

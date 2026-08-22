@@ -24,7 +24,7 @@
 
 import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { extensionName, CONTRACEPTION_TYPES } from './config.js';
-import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare } from './state.js';
+import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, timeBucket, formatAge, sexLabel } from './baby-care.js';
 
@@ -70,7 +70,7 @@ function characterStatusContext(who, preset) {
     if (pregnancy?.isPregnant) {
         const stageMax = currentStageMaxWeeks(preset, pregnancy);
         const stageLabel = preset.gestationType === 'staged'
-            ? (pregnancy.stage === 'clutch' ? preset.stages.second.label : preset.stages.first.label)
+            ? preset.stages.first.label
             : 'pregnant';
         return `${name}: currently ${stageLabel.toLowerCase()}, ${pregnancy.weeks}/${stageMax} weeks, carrying ${pregnancy.offspringCount} ${preset.offspringLabel.toLowerCase()}.\n`;
     }
@@ -83,6 +83,59 @@ function characterStatusContext(who, preset) {
         return `${name}: can conceive, not currently pregnant.\n`;
     }
     return '';
+}
+
+// ─── Инкубирующиеся кладки (отдельно от тела носителя) ───
+function clutchesContext(preset) {
+    const clutches = getClutches();
+    if (clutches.length === 0) return '';
+    let b = `\nIncubating outside the body (already laid):\n`;
+    for (const c of clutches) {
+        const parent = c.parentWho === 'char' ? '{{char}}' : '{{user}}';
+        const label = preset.gestationType === 'staged' ? preset.stages.second.label : 'incubation';
+        b += `• ${c.offspringCount} ${preset.offspringLabel.toLowerCase()} laid by ${parent} — ${label.toLowerCase()} ${c.weeks}/${c.totalWeeks} weeks.\n`;
+    }
+    b += `The carrier's body is free again — they are no longer pregnant and could conceive anew, though the nest and the eggs take most of their attention.\n`;
+    return b;
+}
+
+// ─── Режим «планируем» ───
+function tryingContext(preset) {
+    if (!isTrying()) return '';
+    const months = monthsTrying();
+    const struggle = conceptionStruggle(months);
+
+    let b = `\n[TRYING TO CONCEIVE]\nThey are actively trying for a child.\n`;
+
+    // Фертильное окно есть только там, где есть цикл. В мпрег-подобных
+    // вселенных цикла нет — фертильность ровная, окна не существует.
+    if (preset.cycleSystem === 'abo') {
+        const cfg = getCycleSettings();
+        for (const who of ['user', 'char']) {
+            const character = getCharacterData(who);
+            if (!character.canCarry || character.designation !== 'omega') continue;
+            const name = who === 'char' ? '{{char}}' : '{{user}}';
+            const phase = getHeatPhase(character.cycleDay, cfg);
+            if (phase.phase === 'heat') b += `${name} is IN HEAT — peak fertility, the best possible timing, and ${name} knows it.\n`;
+            else if (phase.phase === 'preheat') b += `${name} is close to heat (about ${phase.daysLeft} days) — fertility rising.\n`;
+            else b += `${name} is between heats — conception is possible but far less likely; next heat in about ${phase.daysLeft} days.\n`;
+        }
+    } else {
+        b += `There is no cycle in this setting — fertility is steady rather than windowed: a well-timed attempt is plausible any time, but never a certainty on its own.\n`;
+    }
+
+    for (const who of ['user', 'char']) {
+        const aid = getFertilityAid(who);
+        if (!aid) continue;
+        const name = who === 'char' ? '{{char}}' : '{{user}}';
+        b += `${name} is under the effect of ${aid.label} — with it working, internal release now leads to conception almost certainly. Treat it as the thing that makes this pregnancy possible at all.\n`;
+    }
+
+    if (months > 0) b += `They have been trying for about ${months} month(s).\n`;
+    if (struggle) {
+        b += `${struggle.label}. Play the quiet strain of it — hope each time, disappointment after, tension between them, thoughts of seeking help.\n`;
+    }
+    return b;
 }
 
 function contraceptionLine(who, name, suffix) {
@@ -125,7 +178,7 @@ function characterTagBlock(who, preset) {
             b += `If the sex of the offspring is definitively revealed THIS reply (scan, healer, magic, hatching), add: <!-- [SEX_REVEAL${tagSuffix}:M] --> — list one letter per offspring, M or F, comma-separated (${pregnancy.offspringCount} total).\n`;
         }
 
-        if (preset.gestationType === 'staged' && pregnancy.stage === 'formation') {
+        if (preset.gestationType === 'staged') {
             b += `If ${name} actually lays/spawns the clutch THIS reply${urgency} (the ${preset.offspringLabel.toLowerCase()} come out — not just contractions or the urge), add: <!-- [LAY_CLUTCH${tagSuffix}] -->\n`;
         } else {
             const verb = preset.gestationType === 'staged' ? 'hatch' : 'are born';
@@ -138,7 +191,7 @@ function characterTagBlock(who, preset) {
 
         // Прерывание: формулировки зависят от стадии — на инкубации теряют
         // уже отложенную кладку, а не вынашиваемый плод.
-        const inClutch = preset.gestationType === 'staged' && pregnancy.stage === 'clutch';
+        const inClutch = false; // кладка вынесена отдельно, тут только вынашивание в теле
         const lossWhat = inClutch
             ? `the clutch is destroyed or dies (crushed, gone cold, confirmed dead — not merely at risk)`
             : `the pregnancy is LOST (confirmed loss — heavy bleeding with loss, doctor confirms it, not mere pain, fear or a threat)`;
@@ -152,6 +205,10 @@ function characterTagBlock(who, preset) {
     } else if (character.canCarry) {
         b += `If in THIS reply semen is released INSIDE ${name} (internal release / creampie${preset.cycleSystem === 'abo' ? ' / knotting' : ''}) — real semen from a body, happening now — add: <!-- [CONCEPTION_CHECK${tagSuffix}] -->. NEVER for toys, fingers, oral, anal without internal release, a condom that held, or a scene that merely mentions sex.\n`;
         b += contraceptionLine(who, name, tagSuffix);
+        if (!isTrying()) {
+            const aid = getFertilityAid(who);
+            if (aid) b += `${name} is under the effect of ${aid.label} — conception is near-certain on internal release while it lasts.\n`;
+        }
     }
     return b;
 }
@@ -214,7 +271,9 @@ export function buildPrompt() {
     prompt += universeContext(preset);
     prompt += characterStatusContext('user', preset);
     prompt += characterStatusContext('char', preset);
+    prompt += clutchesContext(preset);
     prompt += childrenContext(preset);
+    prompt += tryingContext(preset);
 
     // ── Реальные теги, которые нужно ПОСТАВИТЬ ──
     prompt += `\n=== REQUIRED TAGS FOR THIS REPLY ===\n`;

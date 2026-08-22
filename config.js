@@ -254,6 +254,8 @@ export const defaultChatData = {
     // Время суток в истории: night | morning | day | evening.
     // Двигает потребности малышей (кормление, сон, подгузник).
     timeOfDay: 'day',
+    // Точное RP-время 'HH:MM', если модель его сообщает (приоритетнее бакета)
+    rpTime: null,
     // Последняя потеря беременности по каждому носителю — для UI и промпта:
     // { reason: 'miscarriage'|'abortion'|'manual', stage, offspringCount, rpDay }
     lastLoss: { user: null, char: null },

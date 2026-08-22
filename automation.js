@@ -26,7 +26,7 @@ import {
     getSettings, getChatData, getCurrentChatId,
     advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
     applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex, getActivePreset,
-    getCharacterData, isBlocked, applyChildTraits, setTimeOfDay, autoArchiveGrownChildren,
+    getCharacterData, isBlocked, applyChildTraits, setTimeOfDay, setRpTime, autoArchiveGrownChildren,
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
@@ -161,8 +161,13 @@ function applyScanResult(result, debug = null) {
         }
     }
     if (result.timeOfDay) {
-        setTimeOfDay(result.timeOfDay);
-        log(`время суток: ${result.timeOfDay}`);
+        if (result.timeOfDay.rpTime) {
+            setRpTime(result.timeOfDay.rpTime);
+            log(`время: ${result.timeOfDay.rpTime}`);
+        } else if (result.timeOfDay.bucket) {
+            setTimeOfDay(result.timeOfDay.bucket);
+            log(`время суток: ${result.timeOfDay.bucket}`);
+        }
     }
     let pendingBirth = null;
 

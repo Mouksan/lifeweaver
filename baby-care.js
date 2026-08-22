@@ -169,11 +169,33 @@ export function timeBucket(id) {
 
 // ─── Потребности прямо сейчас (адаптация getCareNeeds вдохновителя) ───
 // Возвращает { feeding, diaper, sleep, careNote }.
+// Час из 'HH:MM' (или null)
+export function hourFromRpTime(rpTime) {
+    if (!rpTime || typeof rpTime !== 'string') return null;
+    const m = rpTime.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    const h = parseInt(m[1]);
+    return (h >= 0 && h <= 23) ? h + parseInt(m[2]) / 60 : null;
+}
+
+// Бакет времени суток по точному часу
+export function bucketFromHour(hour) {
+    if (hour === null || hour === undefined) return 'day';
+    if (hour >= 20 || hour < 6) return 'night';
+    if (hour < 11) return 'morning';
+    if (hour < 18) return 'day';
+    return 'evening';
+}
+
+// timeOfDayId — либо 'HH:MM', либо id бакета. Точное время предпочтительнее:
+// именно на нём построен алгоритм вдохновителя, бакет — огрубление на случай,
+// когда модель времени не знает.
 export function getCareNeeds(ageDays, timeOfDayId, child, rpDay = 0) {
     const needs = { feeding: null, diaper: null, sleep: null, careNote: null };
     const a = Math.max(0, parseInt(ageDays) || 0);
-    const bucket = timeBucket(timeOfDayId);
-    const hour = bucket.hour;
+    const exactHour = hourFromRpTime(timeOfDayId);
+    const bucket = exactHour !== null ? timeBucket(bucketFromHour(exactHour)) : timeBucket(timeOfDayId);
+    const hour = exactHour !== null ? exactHour : bucket.hour;
 
     // Персональный сдвиг расписания + дрейф по дням, чтобы близнецы отличались
     // и картина не застывала намертво в одном и том же состоянии.
@@ -202,24 +224,30 @@ export function getCareNeeds(ageDays, timeOfDayId, child, rpDay = 0) {
     }
 
     // Сон по времени суток и возрасту
+    const isNapTime1 = hour >= 10 && hour < 12;
+    const isNapTime2 = hour >= 14 && hour < 16;
+
     if (bucket.id === 'night') {
         needs.sleep = 'Спит';
-        if (a < 90) {
+        if (a < 90 && hour >= 1 && hour < 5) {
             needs.sleep = 'Проснулся';
             needs.feeding = 'Хочет есть';
             needs.careNote = 'Ночное кормление';
         }
-    } else if (bucket.id === 'morning') {
-        needs.sleep = a < 90 ? 'Просыпается' : 'Проснулся';
-    } else if (bucket.id === 'day') {
-        needs.sleep = a < 540 ? 'Дневной сон' : 'Бодрствует';
+    } else if (bucket.id === 'morning' && hour < 8) {
+        needs.sleep = 'Просыпается';
+    } else if (a < 365 && isNapTime1) {
+        needs.sleep = 'Дневной сон';
+    } else if (a < 540 && isNapTime2) {
+        needs.sleep = 'Дневной сон';
     } else {
         needs.sleep = 'Бодрствует';
     }
 
     if (!needs.careNote) {
-        if (bucket.id === 'evening') needs.careNote = 'Пора купать и готовить ко сну';
-        else if (bucket.id === 'morning' && a > 30) needs.careNote = 'Хорошее время для прогулки';
+        if (hour >= 19 && hour < 20.5) needs.careNote = 'Пора купать и готовить ко сну';
+        else if (hour >= 9 && hour < 11 && a > 30) needs.careNote = 'Хорошее время для прогулки';
+        else if (hour >= 16 && hour < 18 && a > 30) needs.careNote = 'Вечерняя прогулка';
         else if (a < 90 && needs.feeding === 'Хочет есть') needs.careNote = 'Кормление по требованию';
     }
 

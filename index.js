@@ -12,7 +12,7 @@ import {
     setContraception, setShowNotifications, setHiddenPregnancy, setNumericSetting,
     getCustomPresetDraft, saveCustomPreset, disableCustomPreset, getRpDay, setRpDay,
     applyMiscarriage, applyAbortion, getLastLoss, clearLastLoss, revealOffspringSex,
-    blockRemaining, clearResurrectionBlocks, getTimeOfDay, setTimeOfDay,
+    blockRemaining, clearResurrectionBlocks, getTimeOfDay, setTimeOfDay, getRpTime, setRpTime, getTimeForCare,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, getMilestoneProgress, formatAge, sexLabel, TIME_BUCKETS } from './baby-care.js';
@@ -165,7 +165,8 @@ function renderOverviewSection(preset) {
             <div class="lw-day-control">
                 <label>День истории:</label>
                 <input type="number" class="lw-input" id="lw_rpday_input" min="0" value="${getRpDay()}">
-                <label style="margin-left:12px;">Время суток:</label>
+                <label style="margin-left:12px;">Время:</label>
+                <input type="text" class="lw-input" id="lw_rptime_input" placeholder="ЧЧ:ММ" style="width:70px;" value="${getRpTime() || ''}">
                 <select class="lw-select" id="lw_tod_select">
                     ${Object.values(TIME_BUCKETS).map(t => `<option value="${t.id}" ${getTimeOfDay() === t.id ? 'selected' : ''}>${t.label}</option>`).join('')}
                 </select>
@@ -182,7 +183,14 @@ function renderOverviewSection(preset) {
     });
     $('#lw_tod_select').on('change', function () {
         setTimeOfDay($(this).val());
+        $('#lw_rptime_input').val('');
         saveSettings();
+    });
+    $('#lw_rptime_input').on('change', function () {
+        const applied = setRpTime($(this).val());
+        $(this).val(applied || '');
+        saveSettings();
+        renderContent();
     });
 }
 
@@ -548,7 +556,7 @@ function renderChildCard(child, preset) {
         </div>
     `;
 
-    const needs = getCareNeeds(ageDays, getTimeOfDay(), child, getRpDay());
+    const needs = getCareNeeds(ageDays, getTimeForCare(), child, getRpDay());
     const needClass = (v) => (/Хочет есть|Требует смены|Проснулся/.test(v) ? 'lw-need-alert' : '');
     const needsHtml = `
         <div class="lw-child-needs">

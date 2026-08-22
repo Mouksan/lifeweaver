@@ -197,11 +197,26 @@ const TIME_WORDS = {
     evening: 'evening', вечер: 'evening', вечером: 'evening',
 };
 
+// Возвращает { rpTime: 'HH:MM'|null, bucket: 'night'|'morning'|'day'|'evening'|null }.
+// Точное время приоритетнее — оно у игрока и так есть в сообщениях; слово
+// принимаем как запасной вариант, если модель времени не знает.
 export function extractTimeOfDay(text) {
     const tag = extractTagComments(text).find(t => t.name === 'TIME_OF_DAY');
     if (!tag) return null;
-    const word = String(tag.payload || '').replace(/[:\s]/g, '').toLowerCase();
-    return TIME_WORDS[word] || null;
+    const payload = String(tag.payload || '').trim();
+
+    const hhmm = payload.match(/(\d{1,2})\s*[:.]\s*(\d{2})/);
+    if (hhmm) {
+        const h = parseInt(hhmm[1]);
+        const m = parseInt(hhmm[2]);
+        if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+            return { rpTime: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`, bucket: null };
+        }
+    }
+
+    const word = payload.replace(/[:\s]/g, '').toLowerCase();
+    const bucket = TIME_WORDS[word] || null;
+    return bucket ? { rpTime: null, bucket } : null;
 }
 
 // Похоже ли на реальное семяизвержение ВНУТРЬ — как у вдохновителя. Модель
@@ -223,10 +238,18 @@ export function looksLikeInternalRelease(text) {
 
 // Дни, прошедшие в истории за этот ответ. 0, если тег не найден — значит
 // действие продолжается в той же сцене, время не двигаем без явного сигнала.
+// Потолок на один тег. Раньше стоял 365 — и скип «прошло два года» (730)
+// молча резался вдвое. Оставляем предохранитель от явного бреда, но с запасом.
+export const MAX_DAYS_PER_TAG = 3650;
+
 export function scanDaysPassed(text) {
     const tag = extractTagComments(text).find(t => t.name === 'DAYS_PASSED');
     if (!tag || tag.value === null || isNaN(tag.value) || tag.value < 0) return 0;
-    return Math.min(tag.value, 365); // sanity cap — не даём одному тегу перекрутить год за раз
+    if (tag.value > MAX_DAYS_PER_TAG) {
+        console.warn(`[Lifeweaver] DAYS_PASSED:${tag.value} превышает потолок ${MAX_DAYS_PER_TAG}, обрезано`);
+        return MAX_DAYS_PER_TAG;
+    }
+    return tag.value;
 }
 
 // Основной скан одного сообщения. Возвращает null, если вообще ничего не найдено.

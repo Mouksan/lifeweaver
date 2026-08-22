@@ -9,6 +9,7 @@
 // перезагрузку.
 
 import { extension_settings } from '../../../extensions.js';
+import { bucketFromHour } from './baby-care.js';
 import { extensionName, defaultSettings, defaultChatData, defaultCharacterData, defaultPregnancyData, getPreset, getTotalWeeks, rollOffspringCount, CONTRACEPTION_TYPES, buildCustomPreset } from './config.js';
 
 function cloneDefault(value) {
@@ -559,6 +560,28 @@ export function autoArchiveGrownChildren() {
     return archived;
 }
 
+// Точное RP-время 'HH:MM', если модель его прислала
+export function getRpTime() {
+    return getChatData().rpTime || null;
+}
+
+export function setRpTime(hhmm) {
+    const chat = getChatData();
+    if (!hhmm) { chat.rpTime = null; return null; }
+    const m = String(hhmm).match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return chat.rpTime || null;
+    const h = parseInt(m[1]), min = parseInt(m[2]);
+    if (h < 0 || h > 23 || min < 0 || min > 59) return chat.rpTime || null;
+    chat.rpTime = `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+    chat.timeOfDay = bucketFromHour(h + min / 60);
+    return chat.rpTime;
+}
+
+// Что скармливать в getCareNeeds: точное время, если есть, иначе бакет
+export function getTimeForCare() {
+    return getRpTime() || getTimeOfDay();
+}
+
 export function getTimeOfDay() {
     return getChatData().timeOfDay || 'day';
 }
@@ -567,6 +590,8 @@ export function setTimeOfDay(id) {
     const valid = ['night', 'morning', 'day', 'evening'];
     const chat = getChatData();
     chat.timeOfDay = valid.includes(id) ? id : 'day';
+    // Слово грубее точного времени — сбрасываем его, чтобы не противоречили
+    chat.rpTime = null;
     return chat.timeOfDay;
 }
 

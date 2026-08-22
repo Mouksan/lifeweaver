@@ -24,7 +24,7 @@
 
 import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { extensionName, CONTRACEPTION_TYPES } from './config.js';
-import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay } from './state.js';
+import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, timeBucket, formatAge, sexLabel } from './baby-care.js';
 
@@ -161,8 +161,8 @@ function childrenContext(preset) {
     const children = getChildren();
     if (children.length === 0) return '';
 
-    const tod = timeBucket(getTimeOfDay());
-    let b = `\nChildren currently in the family (${children.length}) — #N is the tracker's reference number for each. Current time of day: ${tod.id}.\n`;
+    const nowLabel = getRpTime() || timeBucket(getTimeOfDay()).id;
+    let b = `\nChildren currently in the family (${children.length}) — #N is the tracker's reference number for each. Current in-story time: ${nowLabel}.\n`;
     for (let i = 0; i < children.length; i++) {
         const child = children[i];
         const ref = i + 1;
@@ -185,7 +185,7 @@ function childrenContext(preset) {
         }
 
         // Состояние ПРЯМО СЕЙЧАС — то, что модель должна отыгрывать в сцене
-        const needs = getCareNeeds(ageDays, getTimeOfDay(), child, getRpDay());
+        const needs = getCareNeeds(ageDays, getTimeForCare(), child, getRpDay());
         const nowBits = [needs.feeding, needs.sleep, needs.diaper && `подгузник: ${needs.diaper}`]
             .filter(Boolean).join(', ');
         b += `  RIGHT NOW: ${nowBits}.${needs.careNote ? ` (${needs.careNote})` : ''}\n`;
@@ -224,7 +224,7 @@ export function buildPrompt() {
 
     // Время суток нужно только пока есть малыши — от него зависят их потребности
     if (getChildren().some(c => (c.ageWeeks || 0) * 7 < 1095)) {
-        prompt += `If the time of day in the scene is different from "${timeBucket(getTimeOfDay()).id}" or changes this reply, state it (one word: night, morning, day, evening): <!-- [TIME_OF_DAY:day] -->\n`;
+        prompt += `State the current in-story clock time whenever it is known or has moved on: <!-- [TIME_OF_DAY:14:30] --> (24-hour HH:MM). If the scene has no clock time, one word instead — night, morning, day or evening. Baby feeding, naps and nappies are tracked from it.\n`;
     }
 
     // Поэтапное вылупление: у детей, появившихся позже первого, черт ещё нет

@@ -24,6 +24,7 @@ import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, getMilestoneP
 import { initAutomation, refreshRegenSnapshot, clearRegenState, getLastScanDebug } from './automation.js';
 import { showBirthDialog, showNotification } from './notifications.js';
 import { renderInfoblock } from './infoblock.js';
+import { scanFullHistory, estimateHistory } from './history-scan.js';
 import { activeComplications, getHealthInfo, TEST_LABELS, EYE_OPTIONS, HAIR_OPTIONS, bodyPoolFor } from './health.js';
 import { getSymptoms, getRecommendation } from './symptoms.js';
 import { updatePromptInjection, buildPrompt } from './prompts.js';
@@ -1216,6 +1217,16 @@ function renderSettingsSection() {
         </div>
 
         <div class="lw-settings-group">
+            <h3 class="lw-content-subtitle">Пересканировать историю</h3>
+            <p class="lw-placeholder-note">Проходит по всему чату с начала и восстанавливает состояние из тегов — на случай, если расширение подключили к уже идущей истории или данные разъехались. Настройки персонажей, выросшие дети и внешность родителей сохраняются. Действие отменяемо стрелкой в шапке.</p>
+            <div id="lw_rescan_box" class="lw-debug-box"></div>
+            <div class="lw-child-actions" style="margin-top: 10px;">
+                <button type="button" class="lw-btn lw-btn-muted" id="lw_rescan_check">Что найдётся</button>
+                <button type="button" class="lw-btn lw-btn-danger" id="lw_rescan_run">Пересканировать</button>
+            </div>
+        </div>
+
+        <div class="lw-settings-group">
             <h3 class="lw-content-subtitle">Диагностика</h3>
             <p class="lw-placeholder-note">Что расширение увидело в последнем сообщении. Если событие не сработало — смотри сюда.</p>
             <div id="lw_debug_box" class="lw-debug-box">${renderDebugBox()}</div>
@@ -1441,6 +1452,30 @@ function bindSettingsEvents() {
     }
 
     bindCustomPresetEvents();
+
+    $('#lw_rescan_check').on('click', () => {
+        const est = estimateHistory();
+        $('#lw_rescan_box').html(est.tagged === 0
+            ? `<div class="lw-dim">В истории (${est.total} сообщ.) нет ни одного нашего тега — восстанавливать нечего. Такое бывает, если чат шёл без расширения: теги проставляются только при включённом Lifeweaver.</div>`
+            : `<div>Сообщений в чате: <b>${est.total}</b><br>Из них с тегами: <b>${est.tagged}</b></div>
+               <div class="lw-dim" style="margin-top:6px;">Пересканирование сбросит текущее состояние и соберёт его заново из этих сообщений.</div>`);
+    });
+
+    $('#lw_rescan_run').on('click', () => {
+        const est = estimateHistory();
+        if (!confirm(`Пересканировать историю?\n\nСообщений с тегами: ${est.tagged} из ${est.total}.\nТекущее состояние будет пересобрано заново.\n\nОтменить можно стрелкой в шапке.`)) return;
+        const st = scanFullHistory();
+        saveSettings();
+        $('#lw_rescan_box').html(`
+            <div><b>Готово.</b> Обработано сообщений с тегами: ${st.processed}</div>
+            <div class="lw-dim" style="margin-top:6px;">
+                прошло дней: ${st.days} · зачатий: ${st.conceptions} · кладок: ${st.clutches} ·
+                рождений: ${st.births} · потерь: ${st.losses} · тестов: ${st.tests}
+            </div>`);
+        showNotification(`<i class="fa-solid fa-clock-rotate-left"></i> История пересканирована: ${st.processed} событийных сообщений`, 'success');
+        renderUniverseTabs();
+        refreshUndoButton();
+    });
 
     $('#lw_debug_refresh').on('click', () => {
         $('#lw_debug_box').html(renderDebugBox());

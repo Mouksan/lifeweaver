@@ -184,3 +184,79 @@ export function seededRandom(seedStr) {
         return ((h ^= h >>> 16) >>> 0) / 4294967296;
     };
 }
+
+// ═══════════════════════════════════════════
+// ПОСЛЕРОДОВОЕ ВОССТАНОВЛЕНИЕ
+// Портировано с fertility.js вдохновителя, числа один в один.
+// ═══════════════════════════════════════════
+
+export function postpartumState(daysSinceBirth, lactating = true) {
+    const d = Math.max(0, parseInt(daysSinceBirth) || 0);
+    const healing = d < 42
+        ? (d < 10 ? 'швы свежие, больно' : d < 25 ? 'заживает' : 'почти зажило')
+        : null;
+    // Лактационная аменорея: пока кормит, цикл не возвращается (грубо до ~6 мес)
+    const cycleReturned = lactating ? d >= 180 : d >= 45;
+    return {
+        days: d,
+        healing,
+        lactating: lactating && d < 730,
+        cycleReturned,
+        lochia: d < 35,
+        // Пока цикл не вернулся — зачатие крайне маловероятно
+        fertilityMul: cycleReturned ? 1 : (lactating ? 0.05 : 0.3),
+        label: d < 42 ? 'Ранний послеродовой период'
+             : cycleReturned ? 'Восстановление завершено'
+             : 'Кормление, цикл не вернулся',
+    };
+}
+
+// ═══════════════════════════════════════════
+// ГЕНЕТИКА ВНЕШНОСТИ
+// Менделевская модель вдохновителя: тёмное доминирует над светлым,
+// доминантный признак берёт верх в 70% случаев.
+// ═══════════════════════════════════════════
+
+const EYE_RANK = { 'карие': 3, 'зелёные': 2, 'серые': 1, 'голубые': 1 };
+const HAIR_RANK = { 'чёрные': 4, 'тёмные': 3, 'русые': 2, 'рыжие': 2, 'светлые': 1 };
+
+export const EYE_OPTIONS = Object.keys(EYE_RANK);
+export const HAIR_OPTIONS = Object.keys(HAIR_RANK);
+
+function normalizeTrait(v, ranks) {
+    if (!v || typeof v !== 'string') return null;
+    const low = v.toLowerCase();
+    for (const key of Object.keys(ranks)) {
+        if (low.includes(key.slice(0, 4))) return key;
+    }
+    return null;
+}
+
+function pickInherited(a, b, ranks, rnd) {
+    const na = normalizeTrait(a, ranks);
+    const nb = normalizeTrait(b, ranks);
+    if (!na && !nb) return null;
+    if (!na) return nb;
+    if (!nb) return na;
+    if (na === nb) return na;
+    const dominant = (ranks[na] || 0) >= (ranks[nb] || 0) ? na : nb;
+    const recessive = dominant === na ? nb : na;
+    return rnd() < 0.7 ? dominant : recessive;
+}
+
+// Наследование внешности ребёнка от родителей. Возвращает { eyes, hair }.
+export function inheritLooks(parentA, parentB, rnd = Math.random) {
+    return {
+        eyes: pickInherited(parentA?.eyes, parentB?.eyes, EYE_RANK, rnd),
+        hair: pickInherited(parentA?.hair, parentB?.hair, HAIR_RANK, rnd),
+    };
+}
+
+// Готовые строки для карточки ребёнка: ['карие глаза', 'чёрные волосы']
+export function inheritedLooksList(parentA, parentB, rnd = Math.random) {
+    const res = inheritLooks(parentA, parentB, rnd);
+    const out = [];
+    if (res.eyes) out.push(`${res.eyes} глаза`);
+    if (res.hair) out.push(`${res.hair} волосы`);
+    return out;
+}

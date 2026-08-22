@@ -246,6 +246,10 @@ export const defaultCharacterData = {
     // Средство повышения фертильности: пилюля, зелье, ритуал, заклинание.
     // { label, untilRpDay } — untilRpDay null = бессрочно, пока не снимут.
     fertilityAid: null,
+    // Внешность для наследования детьми (менделевская модель)
+    looks: { eyes: '', hair: '' },
+    // Послеродовое состояние: { startRpDay, lactating } — null если не рожал(а)
+    postpartum: null,
     pregnancy: { ...defaultPregnancyData },
 };
 

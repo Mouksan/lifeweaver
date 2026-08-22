@@ -10,7 +10,7 @@
 
 import { extension_settings } from '../../../extensions.js';
 import { bucketFromHour } from './baby-care.js';
-import { rollPlannedComplications, revealComplications, bodyPoolFor, treatComplications, rollTest, seededRandom, activeComplications } from './health.js';
+import { rollPlannedComplications, revealComplications, bodyPoolFor, treatComplications, rollTest, seededRandom, activeComplications, inheritedLooksList, postpartumState } from './health.js';
 import { extensionName, defaultSettings, defaultChatData, defaultCharacterData, defaultPregnancyData, getPreset, getTotalWeeks, rollOffspringCount, CONTRACEPTION_TYPES, buildCustomPreset } from './config.js';
 
 function cloneDefault(value) {
@@ -359,7 +359,9 @@ export function completeBirth(who, traits = null) {
             universe: preset.id,
             fatherName: (t.fatherName || '').trim(),
             personality: Array.isArray(t.personality) ? t.personality.slice(0, 4) : [],
-            appearance: Array.isArray(t.appearance) ? t.appearance.slice(0, 4) : [],
+            // Внешность: сначала унаследованные глаза/волосы (генетика),
+            // сверху то, что описала модель. Механики дополняют друг друга.
+            appearance: mergeAppearance(inheritedLooksList(getLooks('user'), getLooks('char')), t.appearance),
             milestonesSeen: [],
             notes: '',
         };
@@ -368,6 +370,7 @@ export function completeBirth(who, traits = null) {
     }
 
     character.pregnancy = cloneDefault(defaultPregnancyData);
+    startPostpartum(who, true);
     // Роды прошли успешно — плашка о прошлой потере больше не актуальна.
     // Иначе после рождения детей в карточке висит «Беременность потеряна»,
     // хотя всё закончилось хорошо.
@@ -639,6 +642,63 @@ export function setRpTime(hhmm) {
 // Что скармливать в getCareNeeds: точное время, если есть, иначе бакет
 export function getTimeForCare() {
     return getRpTime() || getTimeOfDay();
+}
+
+// ── Внешность родителей (для наследования) ──
+export function getLooks(who) {
+    const character = getCharacterData(who);
+    if (!character.looks || typeof character.looks !== 'object') character.looks = { eyes: '', hair: '' };
+    return character.looks;
+}
+
+export function setLooks(who, field, value) {
+    const looks = getLooks(who);
+    if (field === 'eyes' || field === 'hair') looks[field] = String(value || '').trim();
+    return looks;
+}
+
+// Унаследованное + описанное моделью, без дублей: генетика даёт базу,
+// модель дополняет. Если модель уже упомянула глаза/волосы — её версия важнее.
+export function mergeAppearance(inherited, fromModel) {
+    const model = Array.isArray(fromModel) ? fromModel.slice(0, 4) : [];
+    const mentions = (word) => model.some(m => String(m).toLowerCase().includes(word));
+    const kept = (inherited || []).filter(item => {
+        if (item.includes('глаза') && mentions('глаз')) return false;
+        if (item.includes('волосы') && mentions('волос')) return false;
+        return true;
+    });
+    return [...kept, ...model].slice(0, 5);
+}
+
+// ═══════════════════════════════════════════
+// ПОСЛЕРОДОВОЕ ВОССТАНОВЛЕНИЕ
+// ═══════════════════════════════════════════
+
+// Запускается при родах/вылуплении. lactating — кормит ли носитель.
+export function startPostpartum(who, lactating = true) {
+    getCharacterData(who).postpartum = {
+        startRpDay: getChatData().rpDay || 0,
+        lactating: !!lactating,
+    };
+}
+
+export function getPostpartum(who) {
+    const pp = getCharacterData(who).postpartum;
+    if (!pp) return null;
+    const days = Math.max(0, (getChatData().rpDay || 0) - (pp.startRpDay || 0));
+    const state = postpartumState(days, pp.lactating !== false);
+    // Через два года после родов отслеживать уже нечего
+    if (days > 730) return null;
+    return { ...state, lactatingFlag: pp.lactating !== false };
+}
+
+export function setLactating(who, value) {
+    const pp = getCharacterData(who).postpartum;
+    if (pp) pp.lactating = !!value;
+}
+
+export function clearPostpartum(who) {
+    getCharacterData(who).postpartum = null;
 }
 
 // ═══════════════════════════════════════════
@@ -933,7 +993,7 @@ export function hatchClutch(clutchId, traits = null) {
             universe: clutch.universe,
             fatherName: (t.fatherName || '').trim(),
             personality: Array.isArray(t.personality) ? t.personality.slice(0, 4) : [],
-            appearance: Array.isArray(t.appearance) ? t.appearance.slice(0, 4) : [],
+            appearance: mergeAppearance(inheritedLooksList(getLooks('user'), getLooks('char')), t.appearance),
             milestonesSeen: [],
             notes: '',
         };
@@ -941,6 +1001,9 @@ export function hatchClutch(clutchId, traits = null) {
         created.push(child);
     }
     removeClutch(clutchId);
+    // Кладку не вынашивали в теле к моменту вылупления, но выкармливать
+    // потомство всё равно придётся — послеродовой период начинается здесь.
+    startPostpartum(clutch.parentWho, true);
     clearLastLoss(clutch.parentWho);
     clearResurrectionBlocks(clutch.parentWho);
     return created;

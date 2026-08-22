@@ -24,7 +24,7 @@
 
 import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { extensionName, CONTRACEPTION_TYPES } from './config.js';
-import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid, getHealthHolders, predictTest } from './state.js';
+import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid, getHealthHolders, predictTest, getPostpartum } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { activeComplications, TEST_LABELS } from './health.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, timeBucket, formatAge, sexLabel } from './baby-care.js';
@@ -98,6 +98,28 @@ function clutchesContext(preset) {
         b += `• ${c.offspringCount} ${preset.offspringLabel.toLowerCase()} laid by ${parent} — ${label.toLowerCase()} ${c.weeks}/${c.totalWeeks} weeks.\n`;
     }
     b += `The carrier's body is free again — they are no longer pregnant and could conceive anew, though the nest and the eggs take most of their attention.\n`;
+    return b;
+}
+
+// ─── Послеродовое восстановление ───
+function postpartumContext() {
+    let b = '';
+    for (const who of ['user', 'char']) {
+        const pp = getPostpartum(who);
+        if (!pp) continue;
+        const name = who === 'char' ? '{{char}}' : '{{user}}';
+        b += `\n[POSTPARTUM — ${pp.days} days since the birth for ${name}]\n`;
+        if (pp.healing) b += `Recovery: ${pp.healing}. `;
+        if (pp.lochia) b += `Post-birth bleeding still present. `;
+        b += pp.lactating
+            ? `${name} is nursing: engorgement, leaking, night feeds, milk letting down when the young cry.`
+            : `${name} is not nursing.`;
+        b += `\n`;
+        b += pp.cycleReturned
+            ? `The body has recovered — conception is possible again.\n`
+            : `The body has NOT recovered yet${pp.lactating ? ' (nursing suppresses it)' : ''} — conception is very unlikely for now.\n`;
+        if (pp.days < 42) b += `Sex is still uncomfortable or off the table; ${name} tires fast and may feel touched-out.\n`;
+    }
     return b;
 }
 
@@ -338,6 +360,7 @@ export function buildPrompt() {
     prompt += characterStatusContext('char', preset);
     prompt += clutchesContext(preset);
     prompt += healthContext(preset);
+    prompt += postpartumContext();
     prompt += childrenContext(preset);
     prompt += tryingContext(preset);
 

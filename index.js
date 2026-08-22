@@ -16,12 +16,13 @@ import {
     isTrying, setTrying, monthsTrying, conceptionStruggle, getFertilityAid, setFertilityAid, clearFertilityAid,
     getClutches, setClutchWeeks, hatchClutch, removeClutch, migrateLegacyClutch,
     getHealthHolders, doctorVisit, takeTest, getCurrentChatId,
+    getLooks, setLooks, getPostpartum, setLactating, clearPostpartum,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, getMilestoneProgress, formatAge, sexLabel, TIME_BUCKETS } from './baby-care.js';
 import { initAutomation, refreshRegenSnapshot, clearRegenState, getLastScanDebug } from './automation.js';
 import { showBirthDialog, showNotification } from './notifications.js';
-import { activeComplications, getHealthInfo, TEST_LABELS } from './health.js';
+import { activeComplications, getHealthInfo, TEST_LABELS, EYE_OPTIONS, HAIR_OPTIONS } from './health.js';
 import { updatePromptInjection, buildPrompt } from './prompts.js';
 
 const extensionFolderPath = `scripts/extensions/${extensionName}`;
@@ -924,17 +925,80 @@ function renderTestCard(who, preset) {
     `;
 }
 
+function renderPostpartumCard(who, preset) {
+    const pp = getPostpartum(who);
+    if (!pp) return '';
+    const bits = [];
+    if (pp.healing) bits.push(pp.healing);
+    if (pp.lochia) bits.push('кровотечение ещё идёт');
+    bits.push(pp.cycleReturned ? 'цикл вернулся — зачатие возможно' : 'цикл не вернулся — зачатие маловероятно');
+    return `
+        <div class="lw-card" style="--lw-card-accent: ${preset.color}">
+            <div class="lw-card-label">${carrierDisplayName(who)} · ${pp.days} дн. с родов</div>
+            <div class="lw-health-status lw-health-${pp.days < 42 ? 'warning' : 'normal'}">
+                <i class="fa-solid fa-heart"></i> ${pp.label}
+            </div>
+            <div class="lw-child-care">${bits.map(b => `<div>• ${b}</div>`).join('')}</div>
+            <label class="lw-checkbox-row">
+                <input type="checkbox" class="lw-lactating" data-who="${who}" ${pp.lactatingFlag ? 'checked' : ''}>
+                Кормит
+            </label>
+            <button type="button" class="lw-btn lw-btn-muted lw-clear-pp" data-who="${who}">Завершить период</button>
+        </div>
+    `;
+}
+
+function renderLooksCard(who, preset) {
+    const looks = getLooks(who);
+    const opts = (list, cur) => ['<option value="">—</option>']
+        .concat(list.map(o => `<option value="${o}" ${cur === o ? 'selected' : ''}>${o}</option>`)).join('');
+    return `
+        <div class="lw-card" style="--lw-card-accent: ${preset.color}">
+            <div class="lw-card-label">${carrierDisplayName(who)}</div>
+            <div class="lw-aid-row">
+                <span class="lw-dim">Глаза:</span>
+                <select class="lw-select lw-looks" data-who="${who}" data-field="eyes">${opts(EYE_OPTIONS, looks.eyes)}</select>
+            </div>
+            <div class="lw-aid-row">
+                <span class="lw-dim">Волосы:</span>
+                <select class="lw-select lw-looks" data-who="${who}" data-field="hair">${opts(HAIR_OPTIONS, looks.hair)}</select>
+            </div>
+        </div>
+    `;
+}
+
 function renderHealthSection(preset) {
     const holders = getHealthHolders();
     const testsHtml = ['user', 'char'].map(w => renderTestCard(w, preset)).filter(Boolean).join('');
+    const ppHtml = ['user', 'char'].map(w => renderPostpartumCard(w, preset)).filter(Boolean).join('');
+    const looksHtml = ['user', 'char'].map(w => renderLooksCard(w, preset)).join('');
 
     $('#lw_content').html(`
         <h2 class="lw-content-title">Здоровье</h2>
         ${holders.length ? `<div class="lw-cycle-grid">${holders.map(h => renderHealthCard(h, preset)).join('')}</div>`
             : '<div class="lw-empty"><i class="fa-solid fa-heart-pulse"></i><p>Сейчас нечего отслеживать — ни беременности, ни кладки.</p></div>'}
+        ${ppHtml ? `<h3 class="lw-content-subtitle">Послеродовое восстановление</h3><div class="lw-cycle-grid">${ppHtml}</div>` : ''}
         ${testsHtml ? `<h3 class="lw-content-subtitle">Тесты на беременность</h3><div class="lw-cycle-grid">${testsHtml}</div>` : ''}
+        <h3 class="lw-content-subtitle">Внешность родителей</h3>
+        <p class="lw-placeholder-note">От неё дети наследуют глаза и волосы: тёмное доминирует, но рецессивный признак проявляется примерно в трети случаев. Модель дополняет остальное сама.</p>
+        <div class="lw-cycle-grid">${looksHtml}</div>
         <p class="lw-placeholder-note">Осложнения определяются один раз при зачатии и проявляются по мере срока. Врач лечит обычное с шансом 75%, критическое — 50%.</p>
     `);
+
+    $('.lw-looks').on('change', function () {
+        setLooks($(this).data('who'), $(this).data('field'), $(this).val());
+        saveSettings();
+    });
+    $('.lw-lactating').on('change', function () {
+        setLactating($(this).data('who'), $(this).is(':checked'));
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-clear-pp').on('click', function () {
+        clearPostpartum($(this).data('who'));
+        saveSettings();
+        renderContent();
+    });
 
     $('.lw-doctor-visit').on('click', function () {
         const r = doctorVisit($(this).data('target'));

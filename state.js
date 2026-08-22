@@ -539,7 +539,35 @@ function advanceChildrenAgeByDays(days) {
     chat._ageDayRemainder = totalDays % 7;
     if (addWeeks > 0) {
         for (const child of children) child.ageWeeks = (child.ageWeeks || 0) + addWeeks;
+        autoArchiveGrownChildren();
     }
+}
+
+// Ребёнок, переросший порог, сам уходит в архив — чтобы инфоблок и промпт
+// не пухли от подросших детей (у вдохновителя это babyMaxAgeDays).
+// Настройка 0 отключает авто-архивацию.
+export function autoArchiveGrownChildren() {
+    const maxDays = parseInt(getSettings().childMaxAgeDays);
+    if (!maxDays || maxDays <= 0) return [];
+    const archived = [];
+    for (const child of [...getChildren()]) {
+        if ((child.ageWeeks || 0) * 7 >= maxDays) {
+            archiveChild(child.id);
+            archived.push(child);
+        }
+    }
+    return archived;
+}
+
+export function getTimeOfDay() {
+    return getChatData().timeOfDay || 'day';
+}
+
+export function setTimeOfDay(id) {
+    const valid = ['night', 'morning', 'day', 'evening'];
+    const chat = getChatData();
+    chat.timeOfDay = valid.includes(id) ? id : 'day';
+    return chat.timeOfDay;
 }
 
 // Точка входа: сколько дней прошло в истории за этот ответ — двигает разом

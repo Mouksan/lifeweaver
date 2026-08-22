@@ -26,7 +26,7 @@ import {
     getSettings, getChatData, getCurrentChatId,
     advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
     applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex, getActivePreset,
-    getCharacterData, isBlocked, applyChildTraits,
+    getCharacterData, isBlocked, applyChildTraits, setTimeOfDay, autoArchiveGrownChildren,
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
@@ -154,6 +154,15 @@ function applyScanResult(result, debug = null) {
     if (result.daysPassed > 0) {
         advanceTimeByDays(result.daysPassed);
         log(`время +${result.daysPassed} дн.`);
+        const grown = autoArchiveGrownChildren();
+        if (grown.length) {
+            log(`в архив по возрасту: ${grown.length}`);
+            notify(`<i class="fa-solid fa-graduation-cap"></i> ${grown.map(c => c.name || 'Ребёнок').join(', ')} — вырос(ли), перенесён(ы) в архив`, 'info');
+        }
+    }
+    if (result.timeOfDay) {
+        setTimeOfDay(result.timeOfDay);
+        log(`время суток: ${result.timeOfDay}`);
     }
     let pendingBirth = null;
 

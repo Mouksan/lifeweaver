@@ -187,6 +187,9 @@ export const defaultSettings = {
     // Неделя, после которой беременность становится очевидной сама собой
     // и скрытность перестаёт действовать (как obviousAtWeek у вдохновителя).
     obviousAtWeek: 12,
+    // Возраст в днях, после которого ребёнок сам уходит в архив «вырос»
+    // (как babyMaxAgeDays у вдохновителя). 0 — никогда не архивировать.
+    childMaxAgeDays: 730,
     // Кастомная вселенная (5-й слот) — конструктор в разделе "Настройки".
     // isConfigured: false — вкладка задизейблена, пока не сохранили хотя бы раз.
     customPreset: {
@@ -248,6 +251,9 @@ export const defaultChatData = {
     rpDay: 0,
     // Остаток дней < 7 для взросления детей отдельно от беременностей.
     _ageDayRemainder: 0,
+    // Время суток в истории: night | morning | day | evening.
+    // Двигает потребности малышей (кормление, сон, подгузник).
+    timeOfDay: 'day',
     // Последняя потеря беременности по каждому носителю — для UI и промпта:
     // { reason: 'miscarriage'|'abortion'|'manual', stage, offspringCount, rpDay }
     lastLoss: { user: null, char: null },

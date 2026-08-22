@@ -24,9 +24,9 @@
 
 import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { extensionName, CONTRACEPTION_TYPES } from './config.js';
-import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames } from './state.js';
+import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
-import { childAgeDays, getGrowthStage, getCareNorms, formatAge, sexLabel } from './baby-care.js';
+import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, timeBucket, formatAge, sexLabel } from './baby-care.js';
 
 function designationLabelEn(d) {
     if (d === 'omega') return 'OMEGA';
@@ -161,7 +161,8 @@ function childrenContext(preset) {
     const children = getChildren();
     if (children.length === 0) return '';
 
-    let b = `\nChildren currently in the family (${children.length}) — #N is the tracker's reference number for each:\n`;
+    const tod = timeBucket(getTimeOfDay());
+    let b = `\nChildren currently in the family (${children.length}) — #N is the tracker's reference number for each. Current time of day: ${tod.id}.\n`;
     for (let i = 0; i < children.length; i++) {
         const child = children[i];
         const ref = i + 1;
@@ -183,13 +184,19 @@ function childrenContext(preset) {
             b += `  (not described yet — invent it when this one first gets narrative attention)\n`;
         }
 
+        // Состояние ПРЯМО СЕЙЧАС — то, что модель должна отыгрывать в сцене
+        const needs = getCareNeeds(ageDays, getTimeOfDay(), child, getRpDay());
+        const nowBits = [needs.feeding, needs.sleep, needs.diaper && `подгузник: ${needs.diaper}`]
+            .filter(Boolean).join(', ');
+        b += `  RIGHT NOW: ${nowBits}.${needs.careNote ? ` (${needs.careNote})` : ''}\n`;
+
         const care = [];
         care.push(norms.feeding);
         care.push(norms.sleep);
         if (ageDays < 1095) care.push(norms.diaper);
         if (norms.teething) care.push(norms.teething);
         if (norms.colic) care.push('колики — вечерний плач без причины');
-        b += `  age-appropriate right now: ${care.filter(Boolean).join('; ')}.\n`;
+        b += `  age norms: ${care.filter(Boolean).join('; ')}.\n`;
         if (norms.upcoming) b += `  may soon: ${norms.upcoming}.\n`;
     }
     b += `Keep each child's behaviour and abilities consistent with the age above — a newborn cannot walk or talk.\n`;
@@ -214,6 +221,11 @@ export function buildPrompt() {
     prompt += `1. ALWAYS: state how many in-story days passed THIS reply (0 = same moment; 1 = next morning; 7 = a week later): <!-- [DAYS_PASSED:N] --> — replace N with a plain number.\n`;
     prompt += characterTagBlock('user', preset);
     prompt += characterTagBlock('char', preset);
+
+    // Время суток нужно только пока есть малыши — от него зависят их потребности
+    if (getChildren().some(c => (c.ageWeeks || 0) * 7 < 1095)) {
+        prompt += `If the time of day in the scene is different from "${timeBucket(getTimeOfDay()).id}" or changes this reply, state it (one word: night, morning, day, evening): <!-- [TIME_OF_DAY:day] -->\n`;
+    }
 
     // Поэтапное вылупление: у детей, появившихся позже первого, черт ещё нет
     const children = getChildren();

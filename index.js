@@ -12,10 +12,10 @@ import {
     setContraception, setShowNotifications, setHiddenPregnancy, setNumericSetting,
     getCustomPresetDraft, saveCustomPreset, disableCustomPreset, getRpDay, setRpDay,
     applyMiscarriage, applyAbortion, getLastLoss, clearLastLoss, revealOffspringSex,
-    blockRemaining, clearResurrectionBlocks,
+    blockRemaining, clearResurrectionBlocks, getTimeOfDay, setTimeOfDay,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
-import { childAgeDays, getGrowthStage, getCareNorms, getMilestoneProgress, formatAge, sexLabel } from './baby-care.js';
+import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, getMilestoneProgress, formatAge, sexLabel, TIME_BUCKETS } from './baby-care.js';
 import { initAutomation, refreshRegenSnapshot, clearRegenState, getLastScanDebug } from './automation.js';
 import { updatePromptInjection, buildPrompt } from './prompts.js';
 
@@ -165,6 +165,10 @@ function renderOverviewSection(preset) {
             <div class="lw-day-control">
                 <label>День истории:</label>
                 <input type="number" class="lw-input" id="lw_rpday_input" min="0" value="${getRpDay()}">
+                <label style="margin-left:12px;">Время суток:</label>
+                <select class="lw-select" id="lw_tod_select">
+                    ${Object.values(TIME_BUCKETS).map(t => `<option value="${t.id}" ${getTimeOfDay() === t.id ? 'selected' : ''}>${t.label}</option>`).join('')}
+                </select>
             </div>
             <div class="lw-card-sub">Двигается тегом <code>DAYS_PASSED</code> от модели. Можно поправить руками, если накрутилось лишнего.</div>
         </div>
@@ -174,6 +178,10 @@ function renderOverviewSection(preset) {
     $('#lw_rpday_input').on('change', function () {
         const applied = setRpDay($(this).val());
         $(this).val(applied);
+        saveSettings();
+    });
+    $('#lw_tod_select').on('change', function () {
+        setTimeOfDay($(this).val());
         saveSettings();
     });
 }
@@ -540,6 +548,17 @@ function renderChildCard(child, preset) {
         </div>
     `;
 
+    const needs = getCareNeeds(ageDays, getTimeOfDay(), child, getRpDay());
+    const needClass = (v) => (/Хочет есть|Требует смены|Проснулся/.test(v) ? 'lw-need-alert' : '');
+    const needsHtml = `
+        <div class="lw-child-needs">
+            <span class="lw-badge ${needClass(needs.feeding)}"><i class="fa-solid fa-utensils"></i> ${needs.feeding}</span>
+            <span class="lw-badge ${needClass(needs.sleep)}"><i class="fa-solid fa-moon"></i> ${needs.sleep}</span>
+            ${needs.diaper ? `<span class="lw-badge ${needClass(needs.diaper)}"><i class="fa-solid fa-baby"></i> ${needs.diaper}</span>` : ''}
+        </div>
+        ${needs.careNote ? `<div class="lw-care-note">${needs.careNote}</div>` : ''}
+    `;
+
     const careBits = [norms.feeding, norms.sleep];
     if (ageDays < 1095) careBits.push(norms.diaper);
     if (norms.teething) careBits.push(`🦷 ${norms.teething}`);
@@ -558,6 +577,7 @@ function renderChildCard(child, preset) {
                 </select>
             </div>
             <div class="lw-dim lw-child-origin">От: ${parentName} · ${originPreset.label}${child.fatherName ? ` · отец: ${child.fatherName}` : ''}</div>
+            ${needsHtml}
             ${traitsHtml}
             <div class="lw-child-care">${careBits.filter(Boolean).map(b => `<div>• ${b}</div>`).join('')}</div>
             <div class="lw-child-milestones">
@@ -762,6 +782,9 @@ function renderSettingsSection() {
                 <label>Беременность очевидна с недели
                     <input type="number" class="lw-input" id="lw_setting_obviousAtWeek" min="1" value="${s.obviousAtWeek}">
                 </label>
+                <label>Ребёнок «вырос» через (дн.), 0 — никогда
+                    <input type="number" class="lw-input" id="lw_setting_childMaxAgeDays" min="0" value="${s.childMaxAgeDays}">
+                </label>
             </div>
             <p class="lw-placeholder-note">Фазы драконов/мерфолка (формирование → кладка/инкубация) настраиваются отдельно, в конструкторе кастомной вселенной.</p>
         </div>
@@ -956,6 +979,7 @@ function bindSettingsEvents() {
         { key: 'rutDuration', min: 1 },
         { key: 'pregnancyDuration', min: 1 },
         { key: 'obviousAtWeek', min: 1 },
+        { key: 'childMaxAgeDays', min: 0 },
     ];
     for (const { key, min } of numericFields) {
         $(`#lw_setting_${key}`).on('change', function () {

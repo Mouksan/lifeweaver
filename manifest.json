@@ -5,8 +5,8 @@
     "optional": [],
     "js": "index.js",
     "css": "style.css",
-    "author": "you",
-    "version": "0.1.0",
-    "homePage": "",
-    "auto_update": false
+    "author": "Mouksan",
+    "version": "0.2.0",
+    "homePage": "https://github.com/Mouksan/lifeweaver",
+    "auto_update": true
 }

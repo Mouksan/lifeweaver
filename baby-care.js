@@ -151,6 +151,81 @@ export function getCareNorms(ageDays, child) {
     return c;
 }
 
+// ─── Время суток ───
+// У вдохновителя потребности считались от точного RP-времени (HH:MM). У нас
+// точного времени нет — только счётчик дней, поэтому берём их алгоритм, но
+// кормим его четырьмя грубыми бакетами: модели назвать «вечер» куда проще,
+// чем не ошибиться в часах, а для ухода за малышом этой точности хватает.
+export const TIME_BUCKETS = {
+    night:   { id: 'night',   label: 'Ночь',   hour: 2 },
+    morning: { id: 'morning', label: 'Утро',   hour: 7 },
+    day:     { id: 'day',     label: 'День',   hour: 13 },
+    evening: { id: 'evening', label: 'Вечер',  hour: 20 },
+};
+
+export function timeBucket(id) {
+    return TIME_BUCKETS[id] || TIME_BUCKETS.day;
+}
+
+// ─── Потребности прямо сейчас (адаптация getCareNeeds вдохновителя) ───
+// Возвращает { feeding, diaper, sleep, careNote }.
+export function getCareNeeds(ageDays, timeOfDayId, child, rpDay = 0) {
+    const needs = { feeding: null, diaper: null, sleep: null, careNote: null };
+    const a = Math.max(0, parseInt(ageDays) || 0);
+    const bucket = timeBucket(timeOfDayId);
+    const hour = bucket.hour;
+
+    // Персональный сдвиг расписания + дрейф по дням, чтобы близнецы отличались
+    // и картина не застывала намертво в одном и том же состоянии.
+    const drift = child ? (seedHash(`${child.id}|${rpDay}`) % 3) - 1 : 0;
+    const offset = child ? jitter(child, 'schedule', 1) : 0;
+    const adjHour = (hour + 24 - offset + drift) % 24;
+
+    // Интервал кормления по возрасту (часы) — числа вдохновителя
+    let feedInterval;
+    if (a < 60)       feedInterval = 2.5;
+    else if (a < 120) feedInterval = 3;
+    else if (a < 180) feedInterval = 3.5;
+    else if (a < 365) feedInterval = 4;
+    else              feedInterval = 5;
+
+    const sinceFeed = adjHour % feedInterval;
+    if (sinceFeed >= feedInterval - 0.8) needs.feeding = 'Хочет есть';
+    else if (sinceFeed < 0.8) needs.feeding = 'Только поел';
+    else needs.feeding = 'Сыт';
+
+    // Подгузник
+    if (a < 1095) {
+        const diaperInterval = a < 180 ? 2.5 : 3.5;
+        const sinceDiaper = adjHour % diaperInterval;
+        needs.diaper = sinceDiaper >= diaperInterval - 0.8 ? 'Требует смены' : 'Чистый';
+    }
+
+    // Сон по времени суток и возрасту
+    if (bucket.id === 'night') {
+        needs.sleep = 'Спит';
+        if (a < 90) {
+            needs.sleep = 'Проснулся';
+            needs.feeding = 'Хочет есть';
+            needs.careNote = 'Ночное кормление';
+        }
+    } else if (bucket.id === 'morning') {
+        needs.sleep = a < 90 ? 'Просыпается' : 'Проснулся';
+    } else if (bucket.id === 'day') {
+        needs.sleep = a < 540 ? 'Дневной сон' : 'Бодрствует';
+    } else {
+        needs.sleep = 'Бодрствует';
+    }
+
+    if (!needs.careNote) {
+        if (bucket.id === 'evening') needs.careNote = 'Пора купать и готовить ко сну';
+        else if (bucket.id === 'morning' && a > 30) needs.careNote = 'Хорошее время для прогулки';
+        else if (a < 90 && needs.feeding === 'Хочет есть') needs.careNote = 'Кормление по требованию';
+    }
+
+    return needs;
+}
+
 export const SEX_LABELS = {
     unknown: 'неизвестен',
     M: 'мальчик',

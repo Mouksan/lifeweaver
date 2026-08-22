@@ -1137,3 +1137,24 @@
     border-top: 1px solid var(--lw-border);
     font-style: italic;
 }
+
+/* Кнопка отмены в шапке */
+.lw-header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.lw-undo {
+    font-size: 0.85rem;
+}
+
+.lw-undo[disabled] {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.lw-undo-ready {
+    border-color: var(--lw-accent);
+    color: var(--lw-text);
+}

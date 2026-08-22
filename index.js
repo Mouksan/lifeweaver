@@ -17,6 +17,7 @@ import {
     getClutches, setClutchWeeks, hatchClutch, removeClutch, migrateLegacyClutch,
     getHealthHolders, doctorVisit, takeTest, getCurrentChatId,
     getLooks, setLooks, getPostpartum, setLactating, clearPostpartum,
+    createUndoCheckpoint, undoLastChange, canUndo, lastUndoLabel,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, getMilestoneProgress, formatAge, sexLabel, TIME_BUCKETS } from './baby-care.js';
@@ -120,6 +121,16 @@ function renderSidebar() {
 }
 
 // ─── Контент активного раздела ───
+// Кнопка отмены активна только когда есть что отменять, и подсказывает что именно
+function refreshUndoButton() {
+    const $btn = $('#lw_undo');
+    if (!$btn.length) return;
+    const label = lastUndoLabel();
+    $btn.prop('disabled', !label);
+    $btn.attr('title', label ? `Отменить: ${label}` : 'Нечего отменять');
+    $btn.toggleClass('lw-undo-ready', !!label);
+}
+
 function renderContent() {
     const universeId = getActiveUniverse();
     const preset = resolvePreset(universeId);
@@ -540,6 +551,7 @@ function bindPregnancyEvents() {
     });
     $('.lw-end-pregnancy').on('click', function () {
         const who = $(this).data('who');
+        createUndoCheckpoint(`Сброс беременности: ${carrierDisplayName(who)}`);
         endPregnancy(who);
         saveSettings();
         renderContent();
@@ -604,6 +616,7 @@ function bindPregnancyEvents() {
         }
     });
     $('.lw-clutch-lost').on('click', function () {
+        createUndoCheckpoint('Гибель кладки');
         removeClutch($(this).data('id'));
         saveSettings();
         renderContent();
@@ -619,11 +632,13 @@ function bindPregnancyEvents() {
         renderContent();
     });
     $('.lw-miscarriage').on('click', function () {
+        createUndoCheckpoint(`Потеря беременности: ${carrierDisplayName($(this).data('who'))}`);
         applyMiscarriage($(this).data('who'));
         saveSettings();
         renderContent();
     });
     $('.lw-abortion').on('click', function () {
+        createUndoCheckpoint(`Прерывание беременности: ${carrierDisplayName($(this).data('who'))}`);
         applyAbortion($(this).data('who'));
         saveSettings();
         renderContent();
@@ -788,6 +803,7 @@ function bindChildEvents() {
         saveSettings();
     });
     $('.lw-archive-child').on('click', function () {
+        createUndoCheckpoint('Архивация ребёнка');
         archiveChild($(this).data('id'));
         saveSettings();
         renderContent();
@@ -798,6 +814,8 @@ function bindChildEvents() {
         renderContent();
     });
     $('.lw-delete-child').on('click', function () {
+        const child = [...getChildren(), ...getGrownChildren()].find(c => c.id === $(this).data('id'));
+        createUndoCheckpoint(`Удаление ребёнка: ${child?.name || 'без имени'}`);
         deleteChild($(this).data('id'));
         saveSettings();
         renderContent();
@@ -1387,6 +1405,7 @@ function openPanel() {
     renderUniverseTabs();
     renderSidebar();
     renderContent();
+    refreshUndoButton();
     $('#lw_modal_overlay').addClass('lw-open');
 }
 
@@ -1400,6 +1419,15 @@ async function ensurePanelLoaded() {
     $('body').append(panelHtml);
 
     $('#lw_close').on('click', closePanel);
+    $('#lw_undo').on('click', () => {
+        const label = undoLastChange();
+        saveSettings();
+        showNotification(
+            label ? `<i class="fa-solid fa-rotate-left"></i> Отменено: ${label}` : 'Нечего отменять',
+            label ? 'success' : 'info');
+        renderUniverseTabs();
+        renderContent();
+    });
     $('#lw_modal_overlay').on('click', function (e) {
         if (e.target === this) closePanel();
     });
@@ -1480,6 +1508,9 @@ function saveSettings() {
     // откатит её к состоянию до последнего скана ("поставил, отправил, сбросилось").
     try {
         refreshRegenSnapshot();
+    } catch (e) { /* ignore */ }
+    try {
+        refreshUndoButton();
     } catch (e) { /* ignore */ }
 }
 

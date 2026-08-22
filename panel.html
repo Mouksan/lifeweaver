@@ -4,9 +4,14 @@
             <div class="lw-header-text">
                 <h1 id="lw_title" class="lw-title">Lifeweaver</h1>
             </div>
-            <button id="lw_close" class="lw-close" type="button" aria-label="Закрыть">
-                <i class="fa-solid fa-xmark"></i>
-            </button>
+            <div class="lw-header-actions">
+                <button id="lw_undo" class="lw-close lw-undo" type="button" title="Отменить последнее действие">
+                    <i class="fa-solid fa-rotate-left"></i>
+                </button>
+                <button id="lw_close" class="lw-close" type="button" aria-label="Закрыть">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
         </header>
 
         <nav class="lw-universe-tabs" id="lw_universe_tabs" role="tablist" aria-label="Вселенная"></nav>

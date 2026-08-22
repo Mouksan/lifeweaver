@@ -27,7 +27,7 @@ import {
     advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
     applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex, getActivePreset,
     getCharacterData, isBlocked, applyChildTraits, setTimeOfDay, setRpTime, autoArchiveGrownChildren,
-    migrateLegacyClutch, getClutches, takeTest, doctorVisit,
+    migrateLegacyClutch, getClutches, takeTest, doctorVisit, createUndoCheckpoint,
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
@@ -61,7 +61,11 @@ function getStContext() {
 function snapshotOfChatData() {
     const chat = getChatData();
     const copy = structuredClone(chat);
+    // Ни история откатов, ни стек отмен внутрь снимка не попадают — иначе
+    // каждый снимок тащил бы в себе все предыдущие, и состояние росло бы
+    // лавиной с каждым сообщением.
     delete copy._history;
+    delete copy._undo;
     return copy;
 }
 
@@ -97,9 +101,11 @@ export function rollbackToPosition(newLen) {
         }
 
         // Полная замена состояния (с удалением ключей, появившихся позже)
+        const keptUndo = chat._undo;
         for (const k of Object.keys(chat)) delete chat[k];
         Object.assign(chat, structuredClone(target.state));
         chat._history = kept;
+        if (keptUndo) chat._undo = keptUndo;
 
         _preRegenSnapshot = snapshotOfChatData();
         _snapshotChatId = getCurrentChatId();
@@ -183,11 +189,15 @@ function applyScanResult(result, debug = null) {
         const knownTag = isChar ? result.charKnown : result.known;
 
         // Прерывание — взаимоисключающе с кладкой/родами, обрабатывается первым
+        // Потеря по тегу модели — тоже разрушительное действие: если она
+        // ошиблась, игрок должен иметь возможность откатить одной кнопкой.
         if (abortionTag) {
+            createUndoCheckpoint('Прерывание беременности (по тегу)');
             if (applyAbortion(who)) notify('<i class="fa-solid fa-heart-crack"></i> Беременность прервана', 'warning');
             continue;
         }
         if (miscarriageTag) {
+            createUndoCheckpoint('Потеря беременности (по тегу)');
             if (applyMiscarriage(who)) notify('<i class="fa-solid fa-heart-crack"></i> Беременность потеряна', 'warning');
             continue;
         }
@@ -376,8 +386,10 @@ function runScan(trigger = '?') {
         if (isRegen && _preRegenSnapshot) {
             if (_snapshotChatId === chatIdNow) {
                 const chat = getChatData();
+                const keptUndo = chat._undo;
                 for (const k of Object.keys(chat)) delete chat[k];
                 Object.assign(chat, structuredClone(_preRegenSnapshot));
+                if (keptUndo) chat._undo = keptUndo;
                 saveSettingsDebounced();
                 console.log('[Lifeweaver] реген: состояние откачено к варианту "до"');
             }

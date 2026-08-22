@@ -649,6 +649,66 @@ export function getTimeForCare() {
     return getRpTime() || getTimeOfDay();
 }
 
+// ═══════════════════════════════════════════
+// ОТМЕНА РАЗРУШИТЕЛЬНЫХ ДЕЙСТВИЙ
+// Портировано с pregnancy.js вдохновителя (createUndoCheckpoint /
+// undoLastDestructiveChange). Отличие: у них хранится один снимок, у нас
+// стек на несколько шагов — при тестах разрушительные действия идут подряд,
+// и «отменить» с глубиной один слишком часто оказывается бесполезной.
+// ═══════════════════════════════════════════
+
+const UNDO_DEPTH = 10;
+
+// Снимок делается ПЕРЕД действием. label — что именно сейчас произойдёт.
+export function createUndoCheckpoint(label = 'Изменение') {
+    const chat = getChatData();
+    if (!Array.isArray(chat._undo)) chat._undo = [];
+    const snapshot = structuredClone(chat);
+    // Ни история откатов, ни сам стек отмен внутрь снимка не попадают
+    delete snapshot._undo;
+    delete snapshot._history;
+    chat._undo.push({ label, at: Date.now(), state: snapshot });
+    if (chat._undo.length > UNDO_DEPTH) chat._undo.shift();
+    return label;
+}
+
+export function getUndoStack() {
+    const chat = getChatData();
+    return Array.isArray(chat._undo) ? chat._undo : [];
+}
+
+export function canUndo() {
+    return getUndoStack().length > 0;
+}
+
+export function lastUndoLabel() {
+    const stack = getUndoStack();
+    return stack.length ? stack[stack.length - 1].label : null;
+}
+
+// Возвращает подпись отменённого действия или null, если отменять нечего
+export function undoLastChange() {
+    const chat = getChatData();
+    if (!Array.isArray(chat._undo) || chat._undo.length === 0) return null;
+    const entry = chat._undo.pop();
+    if (!entry?.state) return null;
+
+    const keptUndo = chat._undo;
+    const keptHistory = chat._history;
+    for (const k of Object.keys(chat)) delete chat[k];
+    Object.assign(chat, structuredClone(entry.state));
+    // Стек отмен и история откатов переживают восстановление: иначе после
+    // одной отмены пропала бы возможность отменить предыдущее действие.
+    chat._undo = keptUndo;
+    if (keptHistory) chat._history = keptHistory;
+    return entry.label || 'Изменение';
+}
+
+export function clearUndoStack() {
+    const chat = getChatData();
+    chat._undo = [];
+}
+
 // ── Внешность родителей (для наследования) ──
 export function getLooks(who) {
     const character = getCharacterData(who);

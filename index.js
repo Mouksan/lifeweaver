@@ -386,7 +386,10 @@ function renderPregnancyCard(who, preset, settings) {
     if (!data.canCarry) {
         bodyHtml = `<p class="lw-dim-note">Не отмечен(а) как носитель в этой истории.</p>`;
     } else if (!data.pregnancy?.isPregnant) {
-        const loss = getLastLoss(who);
+        // Если у носителя есть живая кладка — плашка о прошлой потере только
+        // путает: рядом же лежит вполне здоровое потомство.
+        const hasClutch = getClutches().some(c => c.parentWho === who);
+        const loss = hasClutch ? null : getLastLoss(who);
         const lossHtml = loss ? `
             <div class="lw-loss-note">
                 <i class="fa-solid fa-heart-crack"></i>
@@ -814,6 +817,18 @@ function renderPendingNode(who, preset) {
     `;
 }
 
+function renderClutchNode(clutch, preset) {
+    const originPreset = resolvePreset(clutch.universe);
+    const label = originPreset.gestationType === 'staged' ? originPreset.stages.second.label : 'Инкубация';
+    return `
+        <div class="lw-tree-node lw-tree-node-pending" style="--lw-card-accent: ${originPreset.color}">
+            <div class="lw-tree-name">В гнезде</div>
+            <div class="lw-tree-tag">${label} · ${clutch.weeks}/${clutch.totalWeeks} нед.</div>
+            <div class="lw-tree-sub">${clutch.offspringCount} ${(originPreset.offspringLabel || '').toLowerCase()} · от ${carrierDisplayName(clutch.parentWho)}</div>
+        </div>
+    `;
+}
+
 function renderTreeChildNode(child, grown, preset) {
     const originPreset = resolvePreset(child.universe);
     return `
@@ -832,9 +847,13 @@ function renderTreeSection(preset) {
 
     const parentsHtml = renderParentNode('user', preset) + renderParentNode('char', preset);
 
+    // Ожидаемое потомство: и то, что растёт в теле, и уже отложенные кладки.
+    // Без кладок древо пустело сразу после нереста, хотя икринки лежат в гнезде.
+    const clutchNodes = getClutches().map(c => renderClutchNode(c, preset)).join('');
     const pendingHtml = [
         userData.pregnancy?.isPregnant ? renderPendingNode('user', preset) : '',
         charData.pregnancy?.isPregnant ? renderPendingNode('char', preset) : '',
+        clutchNodes,
     ].join('');
 
     const childrenHtml = children.map(c => renderTreeChildNode(c, false, preset)).join('')

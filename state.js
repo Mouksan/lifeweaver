@@ -190,14 +190,21 @@ export function clearResurrectionBlocks(who) {
     if (chat._birthBlockedUntil) chat._birthBlockedUntil[who] = 0;
 }
 
+// Полный сброс блоков обоих носителей — используется при явных «хороших»
+// исходах (нерест, вылупление, новая беременность).
+export function clearAllResurrectionBlocks() {
+    clearResurrectionBlocks('user');
+    clearResurrectionBlocks('char');
+}
+
 // Сколько сообщений осталось до снятия блока (0 — не заблокировано)
 export function blockRemaining(kind, who) {
+    if (!isBlocked(kind, who)) return 0;
     const chat = getChatData();
     const map = kind === 'birth' ? chat._birthBlockedUntil : chat._conceptionBlockedUntil;
-    if (!map) return 0;
-    const until = map[who] || 0;
-    const len = currentChatLength();
-    return len <= until ? (until - len + 1) : 0;
+    const entry = map[who];
+    const until = typeof entry === 'object' ? entry.until : entry;
+    return Math.max(0, (until || 0) - currentChatLength() + 1);
 }
 
 // Раскрытие пола (тег SEX_REVEAL или вручную). Если модель назвала конкретные
@@ -763,6 +770,10 @@ export function applyLayClutch(who) {
     });
 
     character.pregnancy = cloneDefault(defaultPregnancyData);
+    // Нерест — благополучный исход беременности: плашка о прошлой потере
+    // и блоки анти-воскрешения к нему отношения не имеют.
+    clearLastLoss(who);
+    clearResurrectionBlocks(who);
     return true;
 }
 
@@ -805,6 +816,7 @@ export function hatchClutch(clutchId, traits = null) {
     }
     removeClutch(clutchId);
     clearLastLoss(clutch.parentWho);
+    clearResurrectionBlocks(clutch.parentWho);
     return created;
 }
 
@@ -813,11 +825,13 @@ export function hatchClutch(clutchId, traits = null) {
 // РП, ручная беременность на нестандартном сроке). Философия вдохновителя:
 // расширение должно ловить роды независимо от срока.
 export function applyBirth(who, traits = null) {
-    if (isBlocked('birth', who)) return null;
     const preset = getActivePreset();
 
     // В двухфазных вселенных рождение — это вылупление УЖЕ отложенной кладки,
     // а не завершение беременности: беременность закончилась в момент нереста.
+    // Блок анти-воскрешения тут НЕ проверяем: он защищает от «возвращения»
+    // потерянной беременности, а существующая кладка — факт в данных, её
+    // вылупление ничего не воскрешает.
     if (preset.gestationType === 'staged') {
         const mine = getClutchesOf(who);
         if (mine.length === 0) return null;
@@ -826,6 +840,7 @@ export function applyBirth(who, traits = null) {
         return hatchClutch(oldest.id, traits);
     }
 
+    if (isBlocked('birth', who)) return null;
     const pregnancy = getCharacterData(who).pregnancy;
     if (!pregnancy?.isPregnant) return null;
     return completeBirth(who, traits);
@@ -851,7 +866,22 @@ export function isBlocked(kind, who) {
     const chat = getChatData();
     const map = kind === 'birth' ? chat._birthBlockedUntil : chat._conceptionBlockedUntil;
     if (!map) return false;
-    return currentChatLength() <= (map[who] || 0);
+    const entry = map[who];
+    if (!entry) return false;
+
+    // Совместимость со старым форматом (просто число)
+    const until = typeof entry === 'object' ? entry.until : entry;
+    const setAt = typeof entry === 'object' ? entry.setAt : 0;
+    const len = currentChatLength();
+
+    // Откат по таймлайну назад уменьшает длину чата — блок, поставленный
+    // ПОЗЖЕ той точки, куда мы вернулись, к текущей истории уже не относится.
+    // Без этой проверки старые блоки оживали и молча резали роды.
+    if (len < setAt) {
+        map[who] = 0;
+        return false;
+    }
+    return len <= (until || 0);
 }
 
 // reason: 'miscarriage' | 'abortion' | 'manual'
@@ -880,8 +910,8 @@ export function terminatePregnancy(who, reason = 'manual') {
     const len = currentChatLength();
     if (!chat._conceptionBlockedUntil) chat._conceptionBlockedUntil = { user: 0, char: 0 };
     if (!chat._birthBlockedUntil) chat._birthBlockedUntil = { user: 0, char: 0 };
-    chat._conceptionBlockedUntil[who] = len + CONCEPTION_BLOCK_MESSAGES;
-    chat._birthBlockedUntil[who] = len + BIRTH_BLOCK_MESSAGES;
+    chat._conceptionBlockedUntil[who] = { until: len + CONCEPTION_BLOCK_MESSAGES, setAt: len };
+    chat._birthBlockedUntil[who] = { until: len + BIRTH_BLOCK_MESSAGES, setAt: len };
 
     return true;
 }

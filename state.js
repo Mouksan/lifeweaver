@@ -321,13 +321,19 @@ export function updateChildField(id, field, value) {
 }
 
 // Дети, у которых модель ещё не описала характер/внешность. Возникает при
-// поэтапном вылуплении кладки: первый малёк описан, остальные ещё в икринках.
+// поэтапных родах: первый описан, остальные ещё не появились в сцене.
 export function getChildrenMissingTraits() {
     return getChildren().filter(c => !(c.personality?.length) || !(c.appearance?.length));
 }
 
-// Дозаполнение черт от модели (тег CHILD_TRAITS). Матчим по имени,
-// при отсутствии имени — по порядку среди неописанных.
+// Дети без имени — если игрок нажал «Позже», имя может прийти из истории потом.
+export function getChildrenMissingNames() {
+    return getChildren().filter(c => !(c.name || '').trim());
+}
+
+// Дозаполнение от модели (тег CHILD_TRAITS): имя, характер, внешность.
+// Ссылка на ребёнка: по ref (номер в списке, как показан в промпте), по имени,
+// иначе — по порядку среди неописанных.
 export function applyChildTraits(list) {
     if (!Array.isArray(list) || list.length === 0) return 0;
     const children = getChildren();
@@ -337,13 +343,24 @@ export function applyChildTraits(list) {
     for (let i = 0; i < list.length; i++) {
         const entry = list[i] || {};
         let target = null;
-        if (entry.name) {
+
+        const ref = parseInt(entry.ref);
+        if (!isNaN(ref) && ref >= 1 && ref <= children.length) {
+            target = children[ref - 1];
+        }
+        if (!target && entry.name) {
             const wanted = String(entry.name).trim().toLowerCase();
             target = children.find(c => (c.name || '').trim().toLowerCase() === wanted);
         }
         if (!target) target = missing[i];
         if (!target) continue;
 
+        // Имя ставим только если его ещё нет — модель не должна переименовывать
+        // ребёнка, которого игрок уже назвал сам.
+        if (entry.name && !(target.name || '').trim()) {
+            target.name = String(entry.name).trim();
+            filled++;
+        }
         if (Array.isArray(entry.personality) && entry.personality.length && !target.personality?.length) {
             target.personality = entry.personality.slice(0, 4);
             filled++;

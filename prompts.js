@@ -24,7 +24,7 @@
 
 import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { extensionName, CONTRACEPTION_TYPES } from './config.js';
-import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits } from './state.js';
+import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, formatAge, sexLabel } from './baby-care.js';
 
@@ -161,8 +161,10 @@ function childrenContext(preset) {
     const children = getChildren();
     if (children.length === 0) return '';
 
-    let b = `\nChildren currently in the family (${children.length}):\n`;
-    for (const child of children) {
+    let b = `\nChildren currently in the family (${children.length}) — #N is the tracker's reference number for each:\n`;
+    for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        const ref = i + 1;
         const ageDays = childAgeDays(child);
         const stage = getGrowthStage(ageDays);
         const norms = getCareNorms(ageDays, child);
@@ -172,8 +174,8 @@ function childrenContext(preset) {
         bits.push(`${formatAge(ageDays)}`);
         if (stage) bits.push(stage.label);
         if (child.sex && child.sex !== 'unknown') bits.push(sexLabel(child.sex));
-        const name = child.name || 'unnamed';
-        b += `• ${name} (born to ${who}): ${bits.join(', ')}.\n`;
+        const name = child.name || 'NOT NAMED YET';
+        b += `#${ref} ${name} (born to ${who}): ${bits.join(', ')}.\n`;
 
         if (child.personality?.length) b += `  personality: ${child.personality.join(', ')}.\n`;
         if (child.appearance?.length) b += `  looks: ${child.appearance.join(', ')}.\n`;
@@ -214,12 +216,18 @@ export function buildPrompt() {
     prompt += characterTagBlock('char', preset);
 
     // Поэтапное вылупление: у детей, появившихся позже первого, черт ещё нет
+    const children = getChildren();
     const undescribed = getChildrenMissingTraits();
-    if (undescribed.length > 0) {
-        const names = undescribed.map(c => c.name || '(без имени)').join(', ');
-        prompt += `Not yet described: ${names}. Offspring are born one at a time — twins and clutches emerge across several replies, so it is normal for some to still be undescribed. Once you actually describe such a child in the narration, record it with:\n`;
-        prompt += `<!-- [CHILD_TRAITS:{"children":[{"name":"…","personality":["…","…"],"appearance":["…","…"]}]}] -->\n`;
-        prompt += `Values in Russian. Describe them as people first — eye colour, hair, face, build, temperament — since every species here has a largely human body; add species-specific details (tail, fins, scales, horns) alongside, not instead.\n`;
+    const unnamed = getChildrenMissingNames();
+    if (undescribed.length > 0 || unnamed.length > 0) {
+        const refOf = (c) => `#${children.indexOf(c) + 1}`;
+        const pending = [];
+        if (undescribed.length) pending.push(`not described yet: ${undescribed.map(refOf).join(', ')}`);
+        if (unnamed.length) pending.push(`still unnamed: ${unnamed.map(refOf).join(', ')}`);
+        prompt += `\nPending children — ${pending.join('; ')}. Offspring arrive one at a time, and parents often name a child only days later, so this is normal — never invent a name the parents have not actually chosen in the story.\n`;
+        prompt += `When a pending child is genuinely described, or the parents finally settle on a name for one, record it (omit fields you have nothing for):\n`;
+        prompt += `<!-- [CHILD_TRAITS:{"children":[{"ref":1,"name":"…","personality":["…","…"],"appearance":["…","…"]}]}] -->\n`;
+        prompt += `"ref" is the #N number above — always include it. Values in Russian. Describe them as people first — eye colour, hair, face, build, temperament — since every species here has a largely human body; add species-specific details (tail, fins, scales, horns) alongside, not instead.\n`;
     }
 
     // ── Compliance — последним, чтобы модель держала это в фокусе ──

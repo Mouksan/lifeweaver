@@ -15,7 +15,7 @@ import {
     blockRemaining, clearResurrectionBlocks, getTimeOfDay, setTimeOfDay, getRpTime, setRpTime, getTimeForCare,
     isTrying, setTrying, monthsTrying, conceptionStruggle, getFertilityAid, setFertilityAid, clearFertilityAid,
     getClutches, setClutchWeeks, hatchClutch, removeClutch, migrateLegacyClutch,
-    getHealthHolders, doctorVisit, takeTest,
+    getHealthHolders, doctorVisit, takeTest, getCurrentChatId,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, getMilestoneProgress, formatAge, sexLabel, TIME_BUCKETS } from './baby-care.js';
@@ -1036,6 +1036,7 @@ function renderSettingsSection() {
             <div class="lw-child-actions" style="margin-top: 10px;">
                 <button type="button" class="lw-btn lw-btn-muted" id="lw_debug_refresh">Обновить</button>
                 <button type="button" class="lw-btn lw-btn-muted" id="lw_debug_prompt">Показать промпт</button>
+                <button type="button" class="lw-btn lw-btn-muted" id="lw_debug_storage">Хранилище чатов</button>
                 <button type="button" class="lw-btn lw-btn-muted" id="lw_debug_copy">Скопировать всё</button>
             </div>
         </div>
@@ -1233,6 +1234,22 @@ function bindSettingsEvents() {
         const prompt = buildPrompt();
         $('#lw_debug_box').html(`<div class="lw-debug-tail">${escapeHtml(prompt || '(промпт пуст — расширение выключено?)')}</div>`);
     });
+    $('#lw_debug_storage').on('click', () => {
+        const s = getSettings();
+        const current = getCurrentChatId();
+        const rows = Object.entries(s.chatData || {}).map(([id, d]) => {
+            const kids = (d.children || []).length;
+            const cl = (d.clutches || []).length;
+            const preg = ['user', 'char'].filter(w => d.characters?.[w]?.pregnancy?.isPregnant).length;
+            return `<div class="lw-debug-comment">${id === current ? '► ' : '   '}${escapeHtml(id)}
+                <br><span class="lw-dim">вселенная: ${escapeHtml(d.universe || '—')} · беременностей: ${preg} · кладок: ${cl} · детей: ${kids} · день: ${d.rpDay || 0}</span></div>`;
+        });
+        $('#lw_debug_box').html(`
+            <div class="lw-debug-row"><span class="lw-dim">Текущий чат:</span> ${escapeHtml(current || '(не определён!)')}</div>
+            <div class="lw-debug-row"><span class="lw-dim">Записей в хранилище: ${rows.length}</span></div>
+            ${rows.join('') || '<div class="lw-dim">пусто</div>'}
+        `);
+    });
     $('#lw_debug_copy').on('click', async () => {
         const d = getLastScanDebug();
         const payload = `=== LIFEWEAVER ДИАГНОСТИКА ===\n\nПОСЛЕДНИЙ СКАН:\n${JSON.stringify(d, null, 2)}\n\nТЕКУЩИЙ ПРОМПТ:\n${buildPrompt()}`;
@@ -1303,16 +1320,24 @@ function bindSettingsUI() {
         const context = SillyTavern.getContext();
         context.eventSource?.on(context.eventTypes?.CHAT_CHANGED, () => {
             resetChatIdCache();
-            // Старые чаты: инкубация раньше жила внутри беременности
-            migrateLegacyClutch();
             // Снапшоты и позиции скана из прошлого чата не должны пережить переход,
             // иначе состояние утекает между чатами.
             clearRegenState();
-            updatePromptInjection();
-            if ($('#lw_modal_overlay').hasClass('lw-open')) {
-                renderUniverseTabs();
-                renderContent();
-            }
+            // ВАЖНО: ничего не читаем и не пишем прямо сейчас. В момент события
+            // новый чат может быть ещё не догружен, и любое обращение к
+            // состоянию попадёт не в тот чат. Даём кадр на догрузку.
+            // (Миграцию старых кладок не зовём — она и так ленивая.)
+            setTimeout(() => {
+                try {
+                    updatePromptInjection();
+                    if ($('#lw_modal_overlay').hasClass('lw-open')) {
+                        renderUniverseTabs();
+                        renderContent();
+                    }
+                } catch (e) {
+                    console.warn('[Lifeweaver] Ошибка обновления после смены чата:', e);
+                }
+            }, 0);
         });
     } catch (e) {
         console.warn('[Lifeweaver] Не удалось подписаться на смену чата:', e);

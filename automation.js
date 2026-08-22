@@ -396,6 +396,7 @@ function runScan(trigger = '?') {
         const result = scanMessage(text);
         const debugEntry = {
             триггер: trigger,
+            чат: chatIdNow || '(не определён!)',
             позиция: positionId,
             откуда: lastMessage.is_user ? 'сообщение игрока' : 'ответ модели',
             комментариевВТексте: described.commentsFound,
@@ -431,7 +432,6 @@ function runScan(trigger = '?') {
 
 export function initAutomation() {
     try {
-        migrateLegacyClutch();
         if (event_types.MESSAGE_RECEIVED) {
             eventSource.on(event_types.MESSAGE_RECEIVED, (i, type) => {
                 if (type === 'quiet') return;

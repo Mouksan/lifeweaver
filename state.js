@@ -34,11 +34,13 @@ export function getSettings() {
 }
 
 // ── Определение id текущего чата ──
-let _cachedChatId = null;
-
+// Оставлено для совместимости с вызовами при смене чата: кэша больше нет,
+// сбрасывать нечего, но точка входа полезна как явный маркер смены чата.
 export function resetChatIdCache() {
-    _cachedChatId = null;
+    _fallbackWarned = false;
 }
+
+let _fallbackWarned = false;
 
 function computeChatId() {
     try {
@@ -59,11 +61,14 @@ function computeChatId() {
     return null;
 }
 
+// БЕЗ КЭША. Раньше id чата кэшировался до события смены чата, и это давало
+// утечку данных: если что-то обращалось к состоянию в момент, когда новый чат
+// ещё не догрузился, кэш «залипал» на предыдущем id, и всё, что писалось
+// дальше, уходило в данные СТАРОГО чата. Симптом — одинаковые кладки и
+// пропавшие дети во всех чатах одного персонажа. Пересчёт стоит несколько
+// чтений свойств, экономить тут нечего.
 export function getCurrentChatId() {
-    if (_cachedChatId) return _cachedChatId;
-    const resolved = computeChatId();
-    if (resolved) _cachedChatId = resolved;
-    return resolved;
+    return computeChatId();
 }
 
 // ── Fallback, если chatId ещё не определён (чат не выбран) ──
@@ -80,7 +85,16 @@ export function getChatData() {
     const chatId = getCurrentChatId();
 
     if (!s.chatData) s.chatData = {};
-    if (!chatId) return getFallback();
+    if (!chatId) {
+        // Чат ещё не определился: работаем во временном объекте, изменения в
+        // постоянное хранилище НЕ переезжают. Это намеренно — так данные не
+        // утекают в чужой чат, но об этом стоит знать при отладке.
+        if (!_fallbackWarned) {
+            _fallbackWarned = true;
+            console.warn('[Lifeweaver] chatId не определён — работаю во временном объекте, изменения не сохранятся');
+        }
+        return getFallback();
+    }
 
     if (!s.chatData[chatId]) {
         s.chatData[chatId] = cloneDefault(defaultChatData);

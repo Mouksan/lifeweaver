@@ -24,7 +24,7 @@
 
 import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { extensionName, CONTRACEPTION_TYPES } from './config.js';
-import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren } from './state.js';
+import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, formatAge, sexLabel } from './baby-care.js';
 
@@ -104,7 +104,9 @@ function characterTagBlock(who, preset) {
     if (pregnancy?.isPregnant) {
         const stageMax = currentStageMaxWeeks(preset, pregnancy);
 
-        const hiddenGate = getSettings().hiddenPregnancy && !pregnancy.pregnancyKnown;
+        // Скрытая беременность действует только пока срок не стал очевидным:
+        // на 20-й неделе или после отложенной кладки скрывать уже нечего.
+        const hiddenGate = getSettings().hiddenPregnancy && !isPregnancyObvious(who);
         if (hiddenGate) {
             b += `${name} does NOT consciously know yet — never state or imply the pregnancy is confirmed, only vague early signs once past the first couple of weeks. If ${name} definitively confirms it (test, doctor) THIS reply, add: <!-- [PREGNANCY_KNOWN${tagSuffix}] -->\n`;
         }

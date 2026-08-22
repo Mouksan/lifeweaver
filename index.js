@@ -12,6 +12,7 @@ import {
     setContraception, setShowNotifications, setHiddenPregnancy, setNumericSetting,
     getCustomPresetDraft, saveCustomPreset, disableCustomPreset, getRpDay, setRpDay,
     applyMiscarriage, applyAbortion, getLastLoss, clearLastLoss, revealOffspringSex,
+    blockRemaining, clearResurrectionBlocks,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getMilestoneProgress, formatAge, sexLabel } from './baby-care.js';
@@ -364,8 +365,19 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
         ? `<div class="lw-sex-row">${(pregnancy.offspringSex || []).map(s => `<span class="lw-badge">${sexLabel(s)}</span>`).join('')}</div>`
         : `<button type="button" class="lw-btn lw-btn-muted lw-reveal-sex" data-who="${who}">Узнать пол</button>`;
 
+    // Блок анти-воскрешения виден явно — раньше он молча отклонял роды
+    const birthBlock = blockRemaining('birth', who);
+    const blockHtml = birthBlock > 0 ? `
+        <div class="lw-block-note">
+            <i class="fa-solid fa-lock"></i>
+            Роды заблокированы после недавней потери (ещё ~${birthBlock} сообщ.)
+            <button type="button" class="lw-btn lw-btn-muted lw-clear-block" data-who="${who}">Снять</button>
+        </div>
+    ` : '';
+
     return `
         ${barsHtml}
+        ${blockHtml}
         <div class="lw-day-control">
             <label>${weeksLabel}</label>
             <input type="number" class="lw-input lw-weeks-input" data-who="${who}" min="0" max="${stageMax}" value="${pregnancy.weeks}">
@@ -415,6 +427,11 @@ function bindPregnancyEvents() {
     $('.lw-weeks-input').on('change', function () {
         const who = $(this).data('who');
         setPregnancyWeeks(who, $(this).val());
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-clear-block').on('click', function () {
+        clearResurrectionBlocks($(this).data('who'));
         saveSettings();
         renderContent();
     });
@@ -718,6 +735,9 @@ function renderSettingsSection() {
                 <label>Обычная беременность (нед.)
                     <input type="number" class="lw-input" id="lw_setting_pregnancyDuration" min="1" value="${s.pregnancyDuration}">
                 </label>
+                <label>Беременность очевидна с недели
+                    <input type="number" class="lw-input" id="lw_setting_obviousAtWeek" min="1" value="${s.obviousAtWeek}">
+                </label>
             </div>
             <p class="lw-placeholder-note">Фазы драконов/мерфолка (формирование → кладка/инкубация) настраиваются отдельно, в конструкторе кастомной вселенной.</p>
         </div>
@@ -911,6 +931,7 @@ function bindSettingsEvents() {
         { key: 'rutCycleLength', min: 7 },
         { key: 'rutDuration', min: 1 },
         { key: 'pregnancyDuration', min: 1 },
+        { key: 'obviousAtWeek', min: 1 },
     ];
     for (const { key, min } of numericFields) {
         $(`#lw_setting_${key}`).on('change', function () {

@@ -170,6 +170,30 @@ export function startPregnancy(who) {
         offspringCount: count,
         offspringSex,
     };
+
+    // Началась НОВАЯ беременность — блоки анти-воскрешения от предыдущей
+    // потери больше не нужны и не должны мешать её родам (как у вдохновителя:
+    // при успешном зачатии _birthBlockedUntilUser сбрасывается в null).
+    clearResurrectionBlocks(who);
+    // Плашка о прошлой потере тоже неактуальна
+    clearLastLoss(who);
+}
+
+// Снять блоки анти-воскрешения для носителя
+export function clearResurrectionBlocks(who) {
+    const chat = getChatData();
+    if (chat._conceptionBlockedUntil) chat._conceptionBlockedUntil[who] = 0;
+    if (chat._birthBlockedUntil) chat._birthBlockedUntil[who] = 0;
+}
+
+// Сколько сообщений осталось до снятия блока (0 — не заблокировано)
+export function blockRemaining(kind, who) {
+    const chat = getChatData();
+    const map = kind === 'birth' ? chat._birthBlockedUntil : chat._conceptionBlockedUntil;
+    if (!map) return 0;
+    const until = map[who] || 0;
+    const len = currentChatLength();
+    return len <= until ? (until - len + 1) : 0;
 }
 
 // Раскрытие пола (тег SEX_REVEAL или вручную). Если модель назвала конкретные
@@ -396,6 +420,20 @@ export function setRpDay(value) {
     const chat = getChatData();
     chat.rpDay = Math.max(0, parseInt(value) || 0);
     return chat.rpDay;
+}
+
+// Стала ли беременность очевидной сама по себе (срок виден, кладка отложена).
+// У вдохновителя это isObvious(weeks, obviousAtWeek) — скрытая беременность
+// не может тянуться вечно: на большом сроке скрывать уже нечего.
+export function isPregnancyObvious(who) {
+    const preset = getActivePreset();
+    const pregnancy = getCharacterData(who).pregnancy;
+    if (!pregnancy?.isPregnant) return false;
+    if (pregnancy.pregnancyKnown) return true;
+    // Кладка уже отложена — тут скрывать нечего по определению
+    if (preset.gestationType === 'staged' && pregnancy.stage === 'clutch') return true;
+    const obviousAt = Math.max(1, parseInt(getSettings().obviousAtWeek) || 12);
+    return pregnancy.weeks >= obviousAt;
 }
 
 export function setPregnancyKnown(who, value) {

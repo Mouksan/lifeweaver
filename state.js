@@ -378,6 +378,27 @@ export function completeBirth(who, traits = null) {
     return created;
 }
 
+// Добавить ребёнка, который УЖЕ существует в истории (не рождён в этом чате).
+// Без этого нельзя было начать игру с парой, у которой уже есть трёхлетка.
+export function addExistingChild({ name = '', sex = 'unknown', ageWeeks = 0, parentWho = 'user' } = {}) {
+    const preset = getActivePreset();
+    const child = {
+        id: makeChildId(),
+        name: String(name || '').trim(),
+        sex: ['M', 'F'].includes(sex) ? sex : 'unknown',
+        ageWeeks: Math.max(0, parseInt(ageWeeks) || 0),
+        parentWho: parentWho === 'char' ? 'char' : 'user',
+        universe: preset.id,
+        fatherName: '',
+        personality: [],
+        appearance: [],
+        milestonesSeen: [],
+        notes: '',
+    };
+    getChildren().push(child);
+    return child;
+}
+
 export function updateChildField(id, field, value) {
     const child = getChildren().find(c => c.id === id);
     if (child) child[field] = value;

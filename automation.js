@@ -31,7 +31,7 @@ import {
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
-import { showNotification, showBirthDialog } from './notifications.js';
+import { showNotification, showBirthDialog, showGraduationDialog } from './notifications.js';
 import { TEST_LABELS } from './health.js';
 import { renderInfoblock } from './infoblock.js';
 
@@ -167,7 +167,9 @@ function applyScanResult(result, debug = null) {
         const grown = autoArchiveGrownChildren();
         if (grown.length) {
             log(`в архив по возрасту: ${grown.length}`);
-            notify(`<i class="fa-solid fa-graduation-cap"></i> ${grown.map(c => c.name || 'Ребёнок').join(', ')} — вырос(ли), перенесён(ы) в архив`, 'info');
+            try {
+                showGraduationDialog(grown, () => notifyStateChanged());
+            } catch (e) { /* ignore */ }
         }
     }
     if (result.timeOfDay) {

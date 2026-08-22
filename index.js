@@ -15,7 +15,7 @@ import {
     blockRemaining, clearResurrectionBlocks, getTimeOfDay, setTimeOfDay, getRpTime, setRpTime, getTimeForCare,
     isTrying, setTrying, monthsTrying, conceptionStruggle, getFertilityAid, setFertilityAid, clearFertilityAid,
     getClutches, setClutchWeeks, hatchClutch, removeClutch, migrateLegacyClutch,
-    getHealthHolders, doctorVisit, takeTest, getCurrentChatId,
+    getHealthHolders, doctorVisit, takeTest, getCurrentChatId, addExistingChild,
     getLooks, setLooks, getPostpartum, setLactating, clearPostpartum,
     createUndoCheckpoint, undoLastChange, canUndo, lastUndoLabel,
 } from './state.js';
@@ -688,7 +688,52 @@ function renderChildSection(preset) {
         <h2 class="lw-content-title">Ребёнок</h2>
         ${listHtml}
         ${grownHtml}
+        <h3 class="lw-content-subtitle">Добавить существующего</h3>
+        <p class="lw-placeholder-note">Для детей, которые уже есть в истории и родились не в этом чате.</p>
+        <div class="lw-custom-grid">
+            <label>Имя
+                <input type="text" class="lw-input" id="lw_add_child_name" placeholder="Имя ребёнка">
+            </label>
+            <label>Пол
+                <select class="lw-select" id="lw_add_child_sex">
+                    <option value="unknown">не указан</option>
+                    <option value="M">мальчик</option>
+                    <option value="F">девочка</option>
+                </select>
+            </label>
+            <label>Возраст
+                <div style="display:flex;gap:6px;">
+                    <input type="number" class="lw-input" id="lw_add_child_age" min="0" value="0" style="flex:1;min-width:0;">
+                    <select class="lw-select" id="lw_add_child_unit" style="width:88px;">
+                        <option value="w">недель</option>
+                        <option value="m">месяцев</option>
+                        <option value="y">лет</option>
+                    </select>
+                </div>
+            </label>
+            <label>Родитель
+                <select class="lw-select" id="lw_add_child_parent">
+                    <option value="user">${carrierDisplayName('user')}</option>
+                    <option value="char">${carrierDisplayName('char')}</option>
+                </select>
+            </label>
+        </div>
+        <button type="button" class="lw-btn" id="lw_add_child_btn"><i class="fa-solid fa-plus"></i> Добавить</button>
     `);
+
+    $('#lw_add_child_btn').on('click', () => {
+        const n = Math.max(0, parseInt($('#lw_add_child_age').val()) || 0);
+        const unit = $('#lw_add_child_unit').val();
+        const weeks = unit === 'y' ? n * 52 : unit === 'm' ? Math.round(n * 4.345) : n;
+        addExistingChild({
+            name: $('#lw_add_child_name').val(),
+            sex: $('#lw_add_child_sex').val(),
+            ageWeeks: weeks,
+            parentWho: $('#lw_add_child_parent').val(),
+        });
+        saveSettings();
+        renderContent();
+    });
 
     if (children.length) {
         const $list = $('#lw_child_list');

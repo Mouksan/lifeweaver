@@ -1296,3 +1296,80 @@ details.lw-ib[open] .lw-ib-chev { transform: rotate(180deg); }
 @media (max-width: 520px) {
     .lw-ib-grid { grid-template-columns: 1fr; }
 }
+
+/* ═══ Диалог выпуска ═══ */
+.lw-gr-card {
+    position: relative;
+    overflow: hidden;
+    width: min(440px, 92vw);
+    padding: 30px 34px;
+    text-align: center;
+    background: var(--lw-panel);
+    backdrop-filter: blur(var(--lw-blur));
+    -webkit-backdrop-filter: blur(var(--lw-blur));
+    border: 1px solid var(--lw-border);
+    border-radius: 16px;
+    color: var(--lw-text);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    animation: lwGradPop .45s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+@keyframes lwGradPop {
+    from { transform: scale(.75); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+}
+
+.lw-gr-icon {
+    font-size: 40px;
+    margin-bottom: 12px;
+    color: var(--lw-accent);
+}
+
+.lw-gr-title {
+    font-family: var(--lw-font-display);
+    font-size: 1.35rem;
+    margin-bottom: 6px;
+}
+
+.lw-gr-sub {
+    font-size: 0.82rem;
+    color: var(--lw-text-dim);
+    margin-bottom: 18px;
+    line-height: 1.5;
+}
+
+.lw-gr-names {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    border: 1px solid var(--lw-border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.lw-gr-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.lw-gr-card .lw-btn {
+    align-self: center;
+    margin: 0 auto;
+}
+
+.lw-gr-confetti {
+    position: absolute;
+    top: -12px;
+    width: 7px;
+    height: 12px;
+    border-radius: 2px;
+    opacity: 0.9;
+    animation: lwConfetti linear forwards;
+    pointer-events: none;
+}
+
+@keyframes lwConfetti {
+    to { transform: translateY(420px) rotate(720deg); opacity: 0; }
+}

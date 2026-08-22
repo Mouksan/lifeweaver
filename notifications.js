@@ -120,3 +120,56 @@ export function showBirthDialog(children, preset, onConfirm) {
         if (e.key === 'Enter') close(collect());
     });
 }
+
+// ─── Диалог выпуска: дети выросли и уходят в архив ───
+// По образцу showGraduationDialog вдохновителя, включая конфетти.
+export function showGraduationDialog(graduates, onConfirm) {
+    if (!graduates || graduates.length === 0) {
+        if (typeof onConfirm === 'function') onConfirm();
+        return;
+    }
+    $('#lw_grad_overlay').remove();
+
+    const n = graduates.length;
+    const noun = plural(n, 'ребёнок', 'ребёнка', 'детей');
+    const verb = plural(n, 'вырос', 'выросли', 'выросли');
+    const namesHtml = graduates.map(c => {
+        const mark = c.sex === 'F' ? '♀' : c.sex === 'M' ? '♂' : '·';
+        return `<div class="lw-gr-name"><span class="lw-bd-sex-${c.sex || 'unknown'}">${mark}</span> ${escapeHtml(c.name || 'Без имени')}</div>`;
+    }).join('');
+
+    const $overlay = $(`
+        <div id="lw_grad_overlay" class="lw-overlay lw-open">
+            <div class="lw-gr-card">
+                <div class="lw-gr-icon"><i class="fa-solid fa-graduation-cap"></i></div>
+                <div class="lw-gr-title">${n} ${noun} ${verb}</div>
+                <div class="lw-gr-sub">Переезжают в архив — из активного трекинга уходят, но в семье и в памяти остаются.</div>
+                <div class="lw-gr-names">${namesHtml}</div>
+                <button type="button" class="lw-btn" id="lw_gr_ok">Понятно</button>
+            </div>
+        </div>
+    `);
+    $('body').append($overlay);
+
+    // Конфетти
+    const colors = ['#ff9eb4', '#b478ff', '#82c8ff', '#ffd64a', '#82e878'];
+    const card = $overlay.find('.lw-gr-card')[0];
+    for (let i = 0; i < 50; i++) {
+        const conf = document.createElement('div');
+        conf.className = 'lw-gr-confetti';
+        conf.style.left = Math.random() * 100 + '%';
+        conf.style.background = colors[Math.floor(Math.random() * colors.length)];
+        conf.style.animationDuration = (1.5 + Math.random() * 2) + 's';
+        conf.style.animationDelay = (Math.random() * 0.5) + 's';
+        card.appendChild(conf);
+    }
+    setTimeout(() => card.querySelectorAll('.lw-gr-confetti').forEach(c => c.remove()), 4500);
+
+    const close = () => {
+        $overlay.remove();
+        if (typeof onConfirm === 'function') onConfirm();
+    };
+    $overlay.find('#lw_gr_ok').on('click', close);
+    $overlay.on('click', function (e) { if (e.target === this) close(); });
+    $(document).one('keydown.lwgrad', (e) => { if (e.key === 'Escape' || e.key === 'Enter') close(); });
+}

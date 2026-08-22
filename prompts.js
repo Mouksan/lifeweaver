@@ -130,7 +130,10 @@ function characterTagBlock(who, preset) {
         } else {
             const verb = preset.gestationType === 'staged' ? 'hatch' : 'are born';
             b += `If the offspring actually ${verb} THIS reply${urgency} (out and separate — not just labor or contractions), add: <!-- [BIRTH${tagSuffix}] --> — this single short tag is what matters most; never skip it because a longer optional tag felt like too much.\n`;
-            b += `OPTIONAL, only if the birth tag is already there: <!-- [BABY_TRAITS${tagSuffix}:{"babies":[{"name":"","personality":["…"],"appearance":["…"]}]}] --> (values in Russian, ${pregnancy.offspringCount} entr${pregnancy.offspringCount === 1 ? 'y' : 'ies'}).\n`;
+            b += `OPTIONAL, only if the birth tag is already there: <!-- [BABY_TRAITS${tagSuffix}:{"babies":[{"name":"","personality":["…"],"appearance":["…"]}]}] --> (values in Russian, up to ${pregnancy.offspringCount} entr${pregnancy.offspringCount === 1 ? 'y' : 'ies'}).\n`;
+            if (pregnancy.offspringCount > 1) {
+                b += `They are not all born at once — describe only the ones actually out in this reply and leave the rest for later replies; the tracker will ask for the others by name.\n`;
+            }
         }
 
         // Прерывание: формулировки зависят от стадии — на инкубации теряют
@@ -214,8 +217,9 @@ export function buildPrompt() {
     const undescribed = getChildrenMissingTraits();
     if (undescribed.length > 0) {
         const names = undescribed.map(c => c.name || '(без имени)').join(', ');
-        prompt += `Not yet described: ${names}. Once you actually describe such a child in the narration, record it with (values in Russian, matching the species — merfolk have tails and fins, dragons have scales, etc.):\n`;
+        prompt += `Not yet described: ${names}. Offspring are born one at a time — twins and clutches emerge across several replies, so it is normal for some to still be undescribed. Once you actually describe such a child in the narration, record it with:\n`;
         prompt += `<!-- [CHILD_TRAITS:{"children":[{"name":"…","personality":["…","…"],"appearance":["…","…"]}]}] -->\n`;
+        prompt += `Values in Russian. Describe them as people first — eye colour, hair, face, build, temperament — since every species here has a largely human body; add species-specific details (tail, fins, scales, horns) alongside, not instead.\n`;
     }
 
     // ── Compliance — последним, чтобы модель держала это в фокусе ──

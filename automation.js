@@ -243,6 +243,11 @@ function applyScanResult(result, debug = null) {
                     });
                     saveSettingsDebounced();
                 }
+                // ВАЖНО: диалог асинхронный — снапшот для отката уже был записан
+                // в runScan, ДО того как игрок вписал имена. Без этой строки любой
+                // откат (удаление сообщения, свайп, реген) возвращал детей без имён,
+                // хотя черты оставались на месте.
+                refreshRegenSnapshot();
                 notifyStateChanged();
             });
         } catch (e) { /* ignore */ }

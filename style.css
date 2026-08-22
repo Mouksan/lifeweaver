@@ -1112,3 +1112,28 @@
 
 .lw-test-positive { border-color: rgba(90, 168, 106, 0.55); background: rgba(90, 168, 106, 0.12); }
 .lw-test-faint    { border-color: rgba(200, 160, 70, 0.5); background: rgba(200, 160, 70, 0.1); }
+
+/* Симптомы и рекомендации */
+.lw-symptoms {
+    font-size: 0.75rem;
+    color: var(--lw-text-dim);
+    line-height: 1.65;
+    padding: 8px 10px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 2px solid var(--lw-card-accent, var(--lw-accent));
+}
+
+.lw-symptoms .lw-card-label {
+    margin-bottom: 4px;
+}
+
+.lw-rec {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--lw-border);
+    font-style: italic;
+}

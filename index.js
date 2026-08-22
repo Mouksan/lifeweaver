@@ -22,7 +22,8 @@ import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, getMilestoneProgress, formatAge, sexLabel, TIME_BUCKETS } from './baby-care.js';
 import { initAutomation, refreshRegenSnapshot, clearRegenState, getLastScanDebug } from './automation.js';
 import { showBirthDialog, showNotification } from './notifications.js';
-import { activeComplications, getHealthInfo, TEST_LABELS, EYE_OPTIONS, HAIR_OPTIONS } from './health.js';
+import { activeComplications, getHealthInfo, TEST_LABELS, EYE_OPTIONS, HAIR_OPTIONS, bodyPoolFor } from './health.js';
+import { getSymptoms, getRecommendation } from './symptoms.js';
 import { updatePromptInjection, buildPrompt } from './prompts.js';
 
 const extensionFolderPath = `scripts/extensions/${extensionName}`;
@@ -348,6 +349,11 @@ function renderClutchCard(clutch, preset) {
                 <label>Неделя:</label>
                 <input type="number" class="lw-input lw-clutch-weeks" data-id="${clutch.id}" min="0" max="${clutch.totalWeeks}" value="${clutch.weeks}">
             </div>
+            <div class="lw-symptoms">
+                <div class="lw-card-label">Состояние кладки</div>
+                ${getSymptoms('clutch', Math.round((clutch.weeks / Math.max(1, clutch.totalWeeks)) * 100), clutch.weeks).map(s => `<div>• ${s}</div>`).join('')}
+                <div class="lw-rec"><i class="fa-solid fa-lightbulb"></i> ${getRecommendation('clutch', Math.round((clutch.weeks / Math.max(1, clutch.totalWeeks)) * 100))}</div>
+            </div>
             <div class="lw-child-actions">
                 <button type="button" class="lw-btn lw-hatch-clutch" data-id="${clutch.id}" ${ready ? '' : 'disabled'}>
                     Вылупление — записать ${clutch.offspringCount}
@@ -477,6 +483,16 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
 
     const weeksLabel = preset.gestationType === 'staged' ? 'Неделя (в этой фазе):' : 'Неделя:';
 
+    // Телесные признаки текущего срока
+    const pct = Math.round((pregnancy.weeks / Math.max(1, stageMax)) * 100);
+    const symptomsHtml = `
+        <div class="lw-symptoms">
+            <div class="lw-card-label">Сейчас в теле</div>
+            ${getSymptoms(bodyPoolFor(preset), pct, pregnancy.weeks).map(s => `<div>• ${s}</div>`).join('')}
+            <div class="lw-rec"><i class="fa-solid fa-lightbulb"></i> ${getRecommendation(bodyPoolFor(preset), pct)}</div>
+        </div>
+    `;
+
     // Пол потомства: скрыт до раскрытия (тег SEX_REVEAL или кнопка)
     const sexHtml = pregnancy.sexRevealed
         ? `<div class="lw-sex-row">${(pregnancy.offspringSex || []).map(s => `<span class="lw-badge">${sexLabel(s)}</span>`).join('')}</div>`
@@ -504,6 +520,7 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
             <input type="number" class="lw-input lw-offspring-input" data-who="${who}" min="${preset.offspringRange.min}" max="${preset.offspringRange.max}" value="${pregnancy.offspringCount}">
         </div>
         ${sexHtml}
+        ${symptomsHtml}
         ${actionsHtml}
     `;
 }

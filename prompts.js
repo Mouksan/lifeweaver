@@ -26,7 +26,8 @@ import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } fr
 import { extensionName, CONTRACEPTION_TYPES } from './config.js';
 import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid, getHealthHolders, predictTest, getPostpartum } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
-import { activeComplications, TEST_LABELS } from './health.js';
+import { activeComplications, TEST_LABELS, bodyPoolFor } from './health.js';
+import { getSymptoms, getRecommendation } from './symptoms.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, timeBucket, formatAge, sexLabel } from './baby-care.js';
 
 function designationLabelEn(d) {
@@ -73,7 +74,19 @@ function characterStatusContext(who, preset) {
         const stageLabel = preset.gestationType === 'staged'
             ? preset.stages.first.label
             : 'pregnant';
-        return `${name}: currently ${stageLabel.toLowerCase()}, ${pregnancy.weeks}/${stageMax} weeks, carrying ${pregnancy.offspringCount} ${preset.offspringLabel.toLowerCase()}.\n`;
+        let b = `${name}: currently ${stageLabel.toLowerCase()}, ${pregnancy.weeks}/${stageMax} weeks, carrying ${pregnancy.offspringCount} ${preset.offspringLabel.toLowerCase()}.\n`;
+
+        // Телесные признаки этого срока — то, ради чего беременность вообще
+        // отыгрывается, а не просто числится в трекере.
+        const pct = Math.round((pregnancy.weeks / Math.max(1, stageMax)) * 100);
+        const pool = bodyPoolFor(preset);
+        const hidden = getSettings().hiddenPregnancy && !isPregnancyObvious(who);
+        const symptoms = getSymptoms(pool, pct, pregnancy.weeks);
+        b += hidden
+            ? `  Body right now (${name} does not connect these to a pregnancy yet): ${symptoms.join(', ')}.\n`
+            : `  Body right now: ${symptoms.join(', ')}. Weave these in physically; do not list them.\n`;
+        b += `  Advisable at this stage: ${getRecommendation(pool, pct)}.\n`;
+        return b;
     }
     if (character.canCarry) {
         const hasClutch = getClutches().some(c => c.parentWho === who);
@@ -96,6 +109,9 @@ function clutchesContext(preset) {
         const parent = c.parentWho === 'char' ? '{{char}}' : '{{user}}';
         const label = preset.gestationType === 'staged' ? preset.stages.second.label : 'incubation';
         b += `• ${c.offspringCount} ${preset.offspringLabel.toLowerCase()} laid by ${parent} — ${label.toLowerCase()} ${c.weeks}/${c.totalWeeks} weeks.\n`;
+        const pct = Math.round((c.weeks / Math.max(1, c.totalWeeks)) * 100);
+        b += `  State of the clutch: ${getSymptoms('clutch', pct, c.weeks).join(', ')}.\n`;
+        b += `  Advisable: ${getRecommendation('clutch', pct)}.\n`;
     }
     b += `The carrier's body is free again — they are no longer pregnant and could conceive anew, though the nest and the eggs take most of their attention.\n`;
     return b;

@@ -2,7 +2,7 @@
 // LIFEWEAVER — точка входа
 // ═══════════════════════════════════════════
 
-import { extensionName, UNIVERSE_PRESETS, UNIVERSE_ORDER, SECTIONS, summarizePreset, getTotalWeeks, CONTRACEPTION_TYPES, buildCustomPreset } from './config.js';
+import { extensionName, UNIVERSE_PRESETS, UNIVERSE_ORDER, SECTIONS, summarizePreset, getTotalWeeks, CONTRACEPTION_TYPES, buildCustomPreset, termsOf } from './config.js';
 import {
     getSettings, getActiveUniverse, setActiveUniverse, resetChatIdCache,
     getCharacterData, setDesignation, setCycleDay, getCycleSettings, carrierDisplayName,
@@ -351,8 +351,8 @@ function renderClutchCard(clutch, preset) {
             </div>
             <div class="lw-symptoms">
                 <div class="lw-card-label">Состояние кладки</div>
-                ${getSymptoms('clutch', Math.round((clutch.weeks / Math.max(1, clutch.totalWeeks)) * 100), clutch.weeks).map(s => `<div>• ${s}</div>`).join('')}
-                <div class="lw-rec"><i class="fa-solid fa-lightbulb"></i> ${getRecommendation('clutch', Math.round((clutch.weeks / Math.max(1, clutch.totalWeeks)) * 100))}</div>
+                ${getSymptoms('clutch', Math.round((clutch.weeks / Math.max(1, clutch.totalWeeks)) * 100), clutch.weeks, termsOf(originPreset)).map(s => `<div>• ${s}</div>`).join('')}
+                <div class="lw-rec"><i class="fa-solid fa-lightbulb"></i> ${getRecommendation('clutch', Math.round((clutch.weeks / Math.max(1, clutch.totalWeeks)) * 100), termsOf(originPreset))}</div>
             </div>
             <div class="lw-child-actions">
                 <button type="button" class="lw-btn lw-hatch-clutch" data-id="${clutch.id}" ${ready ? '' : 'disabled'}>
@@ -488,8 +488,8 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
     const symptomsHtml = `
         <div class="lw-symptoms">
             <div class="lw-card-label">Сейчас в теле</div>
-            ${getSymptoms(bodyPoolFor(preset), pct, pregnancy.weeks).map(s => `<div>• ${s}</div>`).join('')}
-            <div class="lw-rec"><i class="fa-solid fa-lightbulb"></i> ${getRecommendation(bodyPoolFor(preset), pct)}</div>
+            ${getSymptoms(bodyPoolFor(preset), pct, pregnancy.weeks, termsOf(preset)).map(s => `<div>• ${s}</div>`).join('')}
+            <div class="lw-rec"><i class="fa-solid fa-lightbulb"></i> ${getRecommendation(bodyPoolFor(preset), pct, termsOf(preset))}</div>
         </div>
     `;
 
@@ -1238,6 +1238,18 @@ function renderCustomPresetForm(draft) {
             </label>
         </div>
 
+        <div class="lw-custom-grid" id="lw_custom_terms" style="${draft.gestationType === 'staged' ? '' : 'display:none;'}">
+            <label>Потомство (мн.ч.)
+                <input type="text" class="lw-input" id="lw_custom_term_eggs" value="${draft.terms?.eggs || ''}" placeholder="яйца / икринки">
+            </label>
+            <label>Оболочка (им.п.)
+                <input type="text" class="lw-input" id="lw_custom_term_shell" value="${draft.terms?.shell || ''}" placeholder="скорлупа / оболочка">
+            </label>
+            <label>Оболочка (предл.п.)
+                <input type="text" class="lw-input" id="lw_custom_term_shellPrep" value="${draft.terms?.shellPrep || ''}" placeholder="скорлупе / оболочке">
+            </label>
+        </div>
+
         <div class="lw-child-actions" style="margin-top: 12px;">
             <button type="button" class="lw-btn" id="lw_custom_save">Сохранить и включить</button>
             ${draft.isConfigured ? `<button type="button" class="lw-btn lw-btn-muted" id="lw_custom_disable">Выключить кастом</button>` : ''}
@@ -1261,12 +1273,18 @@ function readDraftFromForm() {
     }
     customDraft.offspringRange = { min: $('#lw_custom_offspring_min').val(), max: $('#lw_custom_offspring_max').val() };
     customDraft.offspringLabel = $('#lw_custom_offspring_label').val();
+    customDraft.terms = {
+        eggs: $('#lw_custom_term_eggs').val() || undefined,
+        shell: $('#lw_custom_term_shell').val() || undefined,
+        shellPrep: $('#lw_custom_term_shellPrep').val() || undefined,
+    };
 }
 
 function bindCustomPresetEvents() {
     $('#lw_custom_gestationType').on('change', function () {
         readDraftFromForm();
         $('#lw_custom_gestation_fields').html(renderCustomGestationFields(customDraft));
+        $('#lw_custom_terms').toggle(customDraft.gestationType === 'staged');
     });
     $('#lw_custom_save').on('click', function () {
         readDraftFromForm();

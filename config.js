@@ -36,6 +36,9 @@ export const UNIVERSE_PRESETS = {
         color: '#c1552f',
         offspringRange: { min: 1, max: 3 },
         offspringLabel: 'Яиц',
+        // Термины для описаний: у драконов скорлупа и яйца, у мерфолка
+        // оболочка и икринки. Подставляются в тексты симптомов.
+        terms: { eggs: 'яйца', egg: 'яйцо', shell: 'скорлупа', shellPrep: 'скорлупе', clutch: 'кладка' },
         stages: {
             first:  { key: 'formation', label: 'Формирование', weeks: 20 },
             second: { key: 'clutch',    label: 'Кладка и инкубация', weeks: 20 },
@@ -50,6 +53,7 @@ export const UNIVERSE_PRESETS = {
         color: '#3f9c92',
         offspringRange: { min: 3, max: 12 },
         offspringLabel: 'Икринок',
+        terms: { eggs: 'икринки', egg: 'икринка', shell: 'оболочка', shellPrep: 'оболочке', clutch: 'кладка' },
         // Длительности — плейсхолдер, донастроим числа на Этапе 8 (конструктор).
         stages: {
             first:  { key: 'formation', label: 'Вынашивание', weeks: 20 },
@@ -69,6 +73,13 @@ export const UNIVERSE_PRESETS = {
 export const UNIVERSE_ORDER = ['mpreg', 'omegaverse', 'dragon', 'merfolk', 'custom'];
 
 export const DEFAULT_UNIVERSE = 'mpreg';
+
+// Термины по умолчанию, если пресет своих не задал
+export const DEFAULT_TERMS = { eggs: 'яйца', egg: 'яйцо', shell: 'скорлупа', shellPrep: 'скорлупе', clutch: 'кладка' };
+
+export function termsOf(preset) {
+    return { ...DEFAULT_TERMS, ...(preset?.terms || {}) };
+}
 
 export function getPreset(universeId) {
     return UNIVERSE_PRESETS[universeId] || UNIVERSE_PRESETS[DEFAULT_UNIVERSE];
@@ -113,6 +124,7 @@ export function buildCustomPreset(cp) {
             max: Math.max(1, parseInt(cp.offspringRange?.max) || 1, parseInt(cp.offspringRange?.min) || 1),
         },
         offspringLabel: cp.offspringLabel || 'Детей',
+        terms: { ...DEFAULT_TERMS, ...(cp.terms || {}) },
     };
     if (preset.gestationType === 'staged') {
         preset.stages = {

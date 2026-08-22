@@ -514,6 +514,11 @@ export function saveCustomPreset(draft) {
             max: Math.max(1, parseInt(draft.offspringRange?.max) || 1, parseInt(draft.offspringRange?.min) || 1),
         },
         offspringLabel: (draft.offspringLabel || 'Детей').trim() || 'Детей',
+        terms: {
+            eggs: (draft.terms?.eggs || '').trim() || undefined,
+            shell: (draft.terms?.shell || '').trim() || undefined,
+            shellPrep: (draft.terms?.shellPrep || '').trim() || undefined,
+        },
     };
 }
 

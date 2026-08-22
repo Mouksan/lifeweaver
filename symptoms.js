@@ -43,29 +43,35 @@ const HUMAN_STAGES = [
 const STAGED_BODY_STAGES = [
     { upTo: 15, count: 3, pool: ['тянущая тяжесть внизу живота', 'постоянный голод', 'сонливость', 'обострённое обоняние', 'зябкость', 'тяга к минеральной пище'] },
     { upTo: 35, count: 4, pool: ['живот заметно тяжелеет', 'тяга грызть камень или ракушки', 'ломота в костях', 'повышенная температура тела', 'раздражительность', 'жажда'] },
-    { upTo: 60, count: 4, pool: ['яйца прощупываются под кожей', 'тело неповоротливо', 'боли в пояснице и бёдрах', 'кожа натянута и зудит', 'усиленный аппетит', 'потребность в тепле'] },
-    { upTo: 85, count: 5, pool: ['инстинкт обустраивать гнездо', 'кладка ощутимо смещается', 'тяжело двигаться', 'бессонница', 'тревожность за потомство', 'болезненные спазмы'] },
-    { upTo: 100, count: 5, pool: ['схватки перед кладкой', 'тело готовится вытолкнуть кладку', 'острая боль в тазу', 'полный отказ покидать гнездо', 'агрессия к чужим', 'частые сокращения'] },
+    { upTo: 60, count: 4, pool: ['{eggs} прощупываются под кожей', 'тело неповоротливо', 'боли в пояснице и бёдрах', 'кожа натянута и зудит', 'усиленный аппетит', 'потребность в тепле'] },
+    { upTo: 85, count: 5, pool: ['инстинкт обустраивать гнездо', '{clutch} ощутимо смещается', 'тяжело двигаться', 'бессонница', 'тревожность за потомство', 'болезненные спазмы'] },
+    { upTo: 100, count: 5, pool: ['схватки перед кладкой', 'тело готовится вытолкнуть {eggs}', 'острая боль в тазу', 'полный отказ покидать гнездо', 'агрессия к чужим', 'частые сокращения'] },
 ];
 
 // ─── Состояние кладки в гнезде (не телесное — про сами яйца) ───
 const CLUTCH_STAGES = [
-    { upTo: 25, count: 3, pool: ['скорлупа ещё мягкая и уязвимая', 'кладка требует ровного тепла', 'яйца нужно переворачивать', 'внутри пока не разглядеть движения'] },
-    { upTo: 60, count: 4, pool: ['скорлупа затвердела', 'внутри различимы тени зародышей', 'на свет видно кровеносную сетку', 'кладка тёплая на ощупь', 'яйца заметно потяжелели'] },
-    { upTo: 85, count: 4, pool: ['зародыши шевелятся внутри', 'слышны слабые звуки из скорлупы', 'скорлупа темнеет', 'кладка беспокойно перекатывается'] },
-    { upTo: 100, count: 4, pool: ['на скорлупе первые трещины', 'изнутри стучат', 'кладка вот-вот раскроется', 'зародыши отвечают на голос'] },
+    { upTo: 25, count: 3, pool: ['{shell} ещё мягкая и уязвимая', '{clutch} требует ровного тепла', '{eggs} нужно переворачивать', 'внутри пока не разглядеть движения'] },
+    { upTo: 60, count: 4, pool: ['{shell} затвердела', 'внутри различимы тени зародышей', 'на свет видно кровеносную сетку', '{clutch} тёплая на ощупь', '{eggs} заметно потяжелели'] },
+    { upTo: 85, count: 4, pool: ['зародыши шевелятся внутри', 'слышны слабые звуки изнутри', '{shell} темнеет', '{clutch} беспокойно шевелится'] },
+    { upTo: 100, count: 4, pool: ['на {shellPrep} первые трещины', 'изнутри стучат', '{clutch} вот-вот раскроется', 'зародыши отвечают на голос'] },
 ];
 
 const POOLS = { human: HUMAN_STAGES, stagedBody: STAGED_BODY_STAGES, clutch: CLUTCH_STAGES };
 
 // Симптомы для процента прогресса. Возвращает массив строк.
 // seed — неделя: набор стабилен в пределах недели.
-export function getSymptoms(poolKey, progressPercent, seed = 0) {
+// Подстановка терминов вселенной: у драконов скорлупа и яйца, у мерфолка
+// оболочка и икринки. Формы хранятся в пресете, тексты пула — с плейсхолдерами.
+function applyTerms(str, terms) {
+    return String(str).replace(/\{(\w+)\}/g, (m, key) => terms[key] ?? m);
+}
+
+export function getSymptoms(poolKey, progressPercent, seed = 0, terms = {}) {
     const stages = POOLS[poolKey] || HUMAN_STAGES;
     const pct = Math.max(0, Math.min(120, Number(progressPercent) || 0));
     if (pct > 100) return ['перенашивание — риск осложнений'];
     const stage = stages.find(s => pct <= s.upTo) || stages[stages.length - 1];
-    return seededPick(stage.pool, stage.count, seed);
+    return seededPick(stage.pool, stage.count, seed).map(s => applyTerms(s, terms));
 }
 
 // ─── Рекомендации по сроку (формулировки вдохновителя) ───
@@ -90,17 +96,17 @@ const STAGED_BODY_RECOMMENDATIONS = [
 
 const CLUTCH_RECOMMENDATIONS = [
     { upTo: 25, text: 'Держать ровное тепло, не тревожить лишний раз' },
-    { upTo: 60, text: 'Переворачивать яйца, следить за влажностью' },
+    { upTo: 60, text: 'Переворачивать {eggs}, следить за влажностью' },
     { upTo: 85, text: 'Охрана гнезда, разговаривать с кладкой' },
     { upTo: 100, text: 'ВЫЛУПЛЕНИЕ СКОРО — не оставлять кладку' },
 ];
 
 const REC_POOLS = { human: HUMAN_RECOMMENDATIONS, stagedBody: STAGED_BODY_RECOMMENDATIONS, clutch: CLUTCH_RECOMMENDATIONS };
 
-export function getRecommendation(poolKey, progressPercent) {
+export function getRecommendation(poolKey, progressPercent, terms = {}) {
     const list = REC_POOLS[poolKey] || HUMAN_RECOMMENDATIONS;
     const pct = Math.max(0, Math.min(120, Number(progressPercent) || 0));
     if (pct > 100) return 'СРОЧНО — потомство перенашивается';
     const hit = list.find(r => pct <= r.upTo);
-    return hit ? hit.text : list[list.length - 1].text;
+    return applyTerms(hit ? hit.text : list[list.length - 1].text, terms);
 }

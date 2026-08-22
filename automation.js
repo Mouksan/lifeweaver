@@ -33,6 +33,7 @@ import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan } from 
 import { updatePromptInjection } from './prompts.js';
 import { showNotification, showBirthDialog } from './notifications.js';
 import { TEST_LABELS } from './health.js';
+import { renderInfoblock } from './infoblock.js';
 
 const HISTORY_CAP = 25;
 
@@ -116,6 +117,7 @@ export function rollbackToPosition(newLen) {
 
         saveSettingsDebounced();
         notifyStateChanged();
+        setTimeout(renderInfoblock, 200);
         return true;
     } catch (e) {
         return false;
@@ -437,6 +439,10 @@ function runScan(trigger = '?') {
         saveSettingsDebounced();
         try { ctx.saveChat?.(); } catch (e) { /* ignore */ }
         setTimeout(() => stripTagsFromDom(idx), 250);
+        // ST дорисовывает сообщение не мгновенно; двойной проход надёжнее —
+        // второй переживает собственную перерисовку Таверны.
+        setTimeout(renderInfoblock, 300);
+        setTimeout(renderInfoblock, 900);
     } catch (e) {
         console.error('[Lifeweaver] runScan error:', e);
     }
@@ -483,6 +489,14 @@ export function initAutomation() {
                 rollbackToPosition(len);
                 updatePromptInjection();
             });
+        }
+
+        // Инфоблок живёт в DOM, поэтому его надо возвращать после любой
+        // перерисовки ленты — свайпы, удаление, подгрузка истории.
+        for (const evt of ['MESSAGE_SWIPED', 'MESSAGE_DELETED', 'MESSAGE_UPDATED', 'CHARACTER_MESSAGE_RENDERED', 'USER_MESSAGE_RENDERED', 'MORE_MESSAGES_LOADED']) {
+            if (event_types[evt]) {
+                eventSource.on(event_types[evt], () => setTimeout(renderInfoblock, 200));
+            }
         }
 
         // Редактирование сообщения — текст изменился, дедуп должен протухнуть

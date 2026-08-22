@@ -1158,3 +1158,68 @@
     border-color: var(--lw-accent);
     color: var(--lw-text);
 }
+
+/* ═══ Инфоблок в чате ═══ */
+.lw-infoblock {
+    --lw-ib-accent: var(--SmartThemeQuoteColor, #c9a659);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 10px 0;
+    padding: 9px 12px;
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor, #999) 20%, transparent);
+    border-left: 3px solid var(--lw-ib-accent);
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #000) 45%, transparent);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.lw-ib-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.lw-ib-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    min-width: 92px;
+}
+
+.lw-ib-dim {
+    opacity: 0.65;
+}
+
+.lw-ib-warn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 1px 7px;
+    border-radius: 4px;
+    background: rgba(200, 120, 70, 0.16);
+    font-size: 0.72rem;
+}
+
+.lw-ib-bar {
+    flex: 1 1 90px;
+    height: 4px;
+    min-width: 70px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.09);
+    overflow: hidden;
+}
+
+.lw-ib-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--lw-ib-accent);
+}
+
+.lw-ib-child .lw-ib-label {
+    font-weight: 500;
+}

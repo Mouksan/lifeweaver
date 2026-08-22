@@ -23,6 +23,7 @@ import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, getMilestoneProgress, formatAge, sexLabel, TIME_BUCKETS } from './baby-care.js';
 import { initAutomation, refreshRegenSnapshot, clearRegenState, getLastScanDebug } from './automation.js';
 import { showBirthDialog, showNotification } from './notifications.js';
+import { renderInfoblock } from './infoblock.js';
 import { activeComplications, getHealthInfo, TEST_LABELS, EYE_OPTIONS, HAIR_OPTIONS, bodyPoolFor } from './health.js';
 import { getSymptoms, getRecommendation } from './symptoms.js';
 import { updatePromptInjection, buildPrompt } from './prompts.js';
@@ -121,6 +122,19 @@ function renderSidebar() {
 }
 
 // ─── Контент активного раздела ───
+// Свой CSS инфоблока держим отдельным тегом, чтобы переписывать целиком
+function injectCustomInfoblockCss() {
+    try {
+        let tag = document.getElementById('lw_custom_infoblock_css');
+        if (!tag) {
+            tag = document.createElement('style');
+            tag.id = 'lw_custom_infoblock_css';
+            document.head.appendChild(tag);
+        }
+        tag.textContent = getSettings().customInfoblockCss || '';
+    } catch (e) { /* ignore */ }
+}
+
 // Кнопка отмены активна только когда есть что отменять, и подсказывает что именно
 function refreshUndoButton() {
     const $btn = $('#lw_undo');
@@ -1094,6 +1108,24 @@ function renderSettingsSection() {
         </div>
 
         <div class="lw-settings-group">
+            <h3 class="lw-content-subtitle">Инфоблок в чате</h3>
+            <p class="lw-placeholder-note">Компактная сводка в последнем ответе бота. Видна только тебе — в текст сообщения и в контекст модели не попадает.</p>
+            <div class="lw-custom-grid">
+                <label>Положение
+                    <select class="lw-select" id="lw_setting_infoblockPosition">
+                        <option value="off" ${s.infoblockPosition === 'off' ? 'selected' : ''}>Выключен</option>
+                        <option value="top" ${s.infoblockPosition === 'top' ? 'selected' : ''}>Над сообщением</option>
+                        <option value="bottom" ${s.infoblockPosition === 'bottom' ? 'selected' : ''}>Под сообщением</option>
+                    </select>
+                </label>
+            </div>
+            <label style="display:block;font-size:0.78rem;color:var(--lw-text-dim);">Свой CSS для инфоблока
+                <textarea class="lw-input" id="lw_setting_infoblockCss" rows="4" style="width:100%;margin-top:5px;font-family:var(--lw-font-mono);font-size:0.72rem;"
+                    placeholder=".lw-infoblock { ... }">${escapeHtml(s.customInfoblockCss || '')}</textarea>
+            </label>
+        </div>
+
+        <div class="lw-settings-group">
             <h3 class="lw-content-subtitle">Общее</h3>
             <label class="lw-checkbox-row">
                 <input type="checkbox" id="lw_setting_notifications" ${s.showNotifications ? 'checked' : ''}>
@@ -1330,6 +1362,17 @@ function bindSettingsEvents() {
         setHiddenPregnancy($(this).is(':checked'));
         saveSettings();
     });
+    $('#lw_setting_infoblockPosition').on('change', function () {
+        getSettings().infoblockPosition = $(this).val();
+        saveSettings();
+        renderInfoblock();
+    });
+    $('#lw_setting_infoblockCss').on('change', function () {
+        getSettings().customInfoblockCss = $(this).val();
+        saveSettings();
+        injectCustomInfoblockCss();
+        renderInfoblock();
+    });
     $('.lw-contraception-select').on('change', function () {
         setContraception($(this).data('who'), $(this).val());
         saveSettings();
@@ -1475,6 +1518,7 @@ function bindSettingsUI() {
             setTimeout(() => {
                 try {
                     updatePromptInjection();
+                    renderInfoblock();
                     if ($('#lw_modal_overlay').hasClass('lw-open')) {
                         renderUniverseTabs();
                         renderContent();
@@ -1512,6 +1556,9 @@ function saveSettings() {
     try {
         refreshUndoButton();
     } catch (e) { /* ignore */ }
+    try {
+        renderInfoblock();
+    } catch (e) { /* ignore */ }
 }
 
 jQuery(async () => {
@@ -1521,6 +1568,9 @@ jQuery(async () => {
         bindSettingsUI();
         initAutomation();
         updatePromptInjection();
+        injectCustomInfoblockCss();
+        // ST дорисовывает сообщения не мгновенно — даём ленте устояться
+        setTimeout(renderInfoblock, 400);
         console.log('[Lifeweaver] Загружен, автоматика подключена.');
     } catch (e) {
         console.error('[Lifeweaver] Ошибка загрузки:', e);

@@ -27,7 +27,7 @@ import {
     advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
     applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex, getActivePreset,
     getCharacterData, isBlocked, applyChildTraits, setTimeOfDay, setRpTime, autoArchiveGrownChildren,
-    migrateLegacyClutch,
+    migrateLegacyClutch, getClutches,
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
@@ -330,6 +330,8 @@ function runScan(trigger = '?') {
         const lastMessage = ctx.chat[idx];
         if (!lastMessage || !lastMessage.mes) return;
 
+        migrateLegacyClutch(); // на случай чатов со старым форматом инкубации
+
         const positionId = ctx.chat.length;
         const isRegen = _isRegeneration && !lastMessage.is_user;
         _isRegeneration = false;
@@ -375,6 +377,11 @@ function runScan(trigger = '?') {
             всеКомментарии: described.allComments,
             хвостТекста: text.slice(-400),
             событий: result ? Object.entries(result).filter(([k, v]) => v === true).map(([k]) => k) : [],
+            кладки: getClutches().map(c => `${c.offspringCount} шт., ${c.weeks}/${c.totalWeeks} нед. (от ${c.parentWho})`),
+            беременности: ['user', 'char'].map(w => {
+                const p = getCharacterData(w).pregnancy;
+                return p?.isPregnant ? `${w}: ${p.weeks} нед., stage=${p.stage}, ${p.offspringCount} шт.` : `${w}: нет`;
+            }),
             днейПрошло: result?.daysPassed || 0,
             применено: [],
         };

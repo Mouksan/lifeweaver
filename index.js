@@ -285,7 +285,11 @@ function renderTryingPanel(preset) {
         return c.canCarry && (c.contraception || 'none') !== 'none';
     }) : [];
 
-    const aidsHtml = ['user', 'char'].filter(w => getCharacterData(w).canCarry).map(w => {
+    // Средства (пилюли, зелья, ритуалы) — атрибут вселенных БЕЗ цикла: там
+    // мужская беременность редка и требует вмешательства. В омегаверсе,
+    // у драконов и мерфолка фертильность даёт течка, средства не нужны.
+    const aidsAllowed = preset.cycleSystem !== 'abo';
+    const aidsHtml = !aidsAllowed ? '' : ['user', 'char'].filter(w => getCharacterData(w).canCarry).map(w => {
         const aid = getFertilityAid(w);
         return `
             <div class="lw-aid-row">
@@ -312,8 +316,10 @@ function renderTryingPanel(preset) {
                 </div>
                 ${struggle ? `<div class="lw-struggle-note"><i class="fa-solid fa-hourglass-half"></i> ${struggle.label}</div>` : ''}
                 ${conflicted.length ? `<div class="lw-struggle-note"><i class="fa-solid fa-triangle-exclamation"></i> Контрацепция включена у: ${conflicted.map(carrierDisplayName).join(', ')}</div>` : ''}
-                <div class="lw-card-label" style="margin-top:8px;">Средства фертильности</div>
-                ${aidsHtml || '<div class="lw-dim">Никто не отмечен носителем.</div>'}
+                ${aidsAllowed ? `
+                    <div class="lw-card-label" style="margin-top:8px;">Средства фертильности</div>
+                    ${aidsHtml || '<div class="lw-dim">Никто не отмечен носителем.</div>'}
+                ` : ''}
             ` : ''}
         </div>
     `;

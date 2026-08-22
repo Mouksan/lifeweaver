@@ -125,6 +125,7 @@ function tryingContext(preset) {
     }
 
     for (const who of ['user', 'char']) {
+        if (preset.cycleSystem === 'abo') break; // средства — атрибут вселенных без цикла
         const aid = getFertilityAid(who);
         if (!aid) continue;
         const name = who === 'char' ? '{{char}}' : '{{user}}';
@@ -205,7 +206,7 @@ function characterTagBlock(who, preset) {
     } else if (character.canCarry) {
         b += `If in THIS reply semen is released INSIDE ${name} (internal release / creampie${preset.cycleSystem === 'abo' ? ' / knotting' : ''}) — real semen from a body, happening now — add: <!-- [CONCEPTION_CHECK${tagSuffix}] -->. NEVER for toys, fingers, oral, anal without internal release, a condom that held, or a scene that merely mentions sex.\n`;
         b += contraceptionLine(who, name, tagSuffix);
-        if (!isTrying()) {
+        if (!isTrying() && preset.cycleSystem !== 'abo') {
             const aid = getFertilityAid(who);
             if (aid) b += `${name} is under the effect of ${aid.label} — conception is near-certain on internal release while it lasts.\n`;
         }

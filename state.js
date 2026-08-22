@@ -694,6 +694,11 @@ export function applyConception(who) {
 export function getClutches() {
     const chat = getChatData();
     if (!Array.isArray(chat.clutches)) chat.clutches = [];
+    // Миграция ленивая — на любом обращении к кладкам. Раньше она висела на
+    // событии смены чата и молча пропускалась, если игрок просто обновил
+    // страницу: данные оставались в старом формате (инкубация внутри
+    // беременности), а новый код читал их как фазу вынашивания.
+    migrateLegacyClutch();
     return chat.clutches;
 }
 
@@ -704,7 +709,19 @@ export function getClutchesOf(who) {
 
 // Миграция старых чатов: раньше фаза инкубации жила внутри pregnancy
 // (stage: 'clutch'). Переносим такую беременность в отдельную кладку.
+let _migratingClutch = false;
+
 export function migrateLegacyClutch() {
+    if (_migratingClutch) return; // защита от рекурсии: ниже дёргаем getClutches
+    _migratingClutch = true;
+    try {
+        migrateLegacyClutchInner();
+    } finally {
+        _migratingClutch = false;
+    }
+}
+
+function migrateLegacyClutchInner() {
     for (const who of ['user', 'char']) {
         const character = getCharacterData(who);
         const pregnancy = character.pregnancy;

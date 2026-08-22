@@ -25,10 +25,11 @@ import { eventSource, event_types, saveSettingsDebounced } from '../../../../scr
 import {
     getSettings, getChatData, getCurrentChatId,
     advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
-    applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex,
+    applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex, getActivePreset,
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
+import { showNotification, showBirthDialog } from './notifications.js';
 
 const HISTORY_CAP = 25;
 
@@ -149,6 +150,7 @@ function applyScanResult(result) {
     if (!result) return;
 
     if (result.daysPassed > 0) advanceTimeByDays(result.daysPassed);
+    let pendingBirth = null;
 
     for (const who of ['user', 'char']) {
         const isChar = who === 'char';
@@ -160,19 +162,58 @@ function applyScanResult(result) {
         const knownTag = isChar ? result.charKnown : result.known;
 
         // Прерывание — взаимоисключающе с кладкой/родами, обрабатывается первым
-        if (abortionTag) { applyAbortion(who); continue; }
-        if (miscarriageTag) { applyMiscarriage(who); continue; }
-        if (conceptionTag) applyConception(who);
+        if (abortionTag) {
+            if (applyAbortion(who)) notify('<i class="fa-solid fa-heart-crack"></i> Беременность прервана', 'warning');
+            continue;
+        }
+        if (miscarriageTag) {
+            if (applyMiscarriage(who)) notify('<i class="fa-solid fa-heart-crack"></i> Беременность потеряна', 'warning');
+            continue;
+        }
+        if (conceptionTag) {
+            if (applyConception(who)) {
+                const hidden = getSettings().hiddenPregnancy;
+                notify(hidden
+                    ? '<i class="fa-solid fa-user-secret"></i> Зачатие произошло — но он пока не знает'
+                    : '<i class="fa-solid fa-check"></i> Зачатие произошло!', 'success');
+            }
+        }
         // Раскрытие пола — до родов, чтобы дети создались с уже открытым полом
         const sexTag = isChar ? result.charSexRevealed : result.sexRevealed;
         if (sexTag) revealOffspringSex(who, result.revealedSexes);
-        if (layTag) applyLayClutch(who);
+        if (layTag) {
+            if (applyLayClutch(who)) notify('<i class="fa-solid fa-egg"></i> Кладка отложена — началась инкубация', 'success');
+        }
         if (birthTag) {
             const traits = isChar ? result.charBabyTraits : result.babyTraits;
-            applyBirth(who, traits);
+            const created = applyBirth(who, traits);
+            if (created && created.length) {
+                pendingBirth = created;
+            }
         }
         if (knownTag) setPregnancyKnown(who, true);
     }
+
+    // Диалог рождения — после применения всех событий
+    if (pendingBirth) {
+        try {
+            showBirthDialog(pendingBirth, getActivePreset(), (names) => {
+                if (Array.isArray(names)) {
+                    names.forEach((n, i) => {
+                        if (n && pendingBirth[i]) pendingBirth[i].name = n;
+                    });
+                    saveSettingsDebounced();
+                }
+                notifyStateChanged();
+            });
+        } catch (e) { /* ignore */ }
+    }
+}
+
+function notify(html, type) {
+    try {
+        if (getSettings().showNotifications) showNotification(html, type);
+    } catch (e) { /* ignore */ }
 }
 
 // Убирает наши теги из msg.mes после скана, сохранив исходник в msg.extra.

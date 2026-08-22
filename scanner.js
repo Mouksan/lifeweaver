@@ -32,7 +32,11 @@
 //    с полями пола/черт в данных ребёнка.
 
 const KNOWN_TAGS = ['DAYS_PASSED', 'CONCEPTION_CHECK', 'LAY_CLUTCH', 'BIRTH', 'MISCARRIAGE', 'ABORTION', 'PREGNANCY_KNOWN', 'SEX_REVEAL', 'BABY_TRAITS'];
-const TAG_NAME_RE = new RegExp(`\\[(${KNOWN_TAGS.join('|')})(:CHAR)?(?:[:\\s]+(\\d+))?\\]`, 'i');
+// После имени тега может идти произвольная нагрузка: число (DAYS_PASSED:14),
+// список полов (SEX_REVEAL:M,F) или целый JSON (BABY_TRAITS:{...}).
+// Раньше тут допускались только цифры — теги с буквами и JSON не
+// распознавались вообще и оставались торчать в тексте сообщения.
+const TAG_NAME_RE = new RegExp(`\\[(${KNOWN_TAGS.join('|')})\\b(:CHAR)?([^\\]]*)\\]`, 'i');
 // Безопасный поиск ОДНОГО HTML-комментария: нежадно до первого "-->",
 // поэтому не может перепрыгнуть через "-->" чужого комментария.
 const COMMENT_RE = /<!--[\s\S]*?-->/g;
@@ -46,10 +50,13 @@ function extractTagComments(text) {
     for (const raw of comments) {
         const m = raw.match(TAG_NAME_RE);
         if (!m) continue;
+        const payload = m[3] || '';
+        const num = payload.match(/(\d+)/);
         found.push({
             name: m[1].toUpperCase(),
             isChar: !!m[2],
-            value: m[3] !== undefined ? parseInt(m[3]) : null,
+            value: num ? parseInt(num[1]) : null,
+            payload,
             raw,
         });
     }

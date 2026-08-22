@@ -24,7 +24,7 @@
 
 import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { extensionName, CONTRACEPTION_TYPES } from './config.js';
-import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious } from './state.js';
+import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, formatAge, sexLabel } from './baby-care.js';
 
@@ -174,6 +174,9 @@ function childrenContext(preset) {
 
         if (child.personality?.length) b += `  personality: ${child.personality.join(', ')}.\n`;
         if (child.appearance?.length) b += `  looks: ${child.appearance.join(', ')}.\n`;
+        if (!child.personality?.length || !child.appearance?.length) {
+            b += `  (not described yet — invent it when this one first gets narrative attention)\n`;
+        }
 
         const care = [];
         care.push(norms.feeding);
@@ -206,6 +209,14 @@ export function buildPrompt() {
     prompt += `1. ALWAYS: state how many in-story days passed THIS reply (0 = same moment; 1 = next morning; 7 = a week later): <!-- [DAYS_PASSED:N] --> — replace N with a plain number.\n`;
     prompt += characterTagBlock('user', preset);
     prompt += characterTagBlock('char', preset);
+
+    // Поэтапное вылупление: у детей, появившихся позже первого, черт ещё нет
+    const undescribed = getChildrenMissingTraits();
+    if (undescribed.length > 0) {
+        const names = undescribed.map(c => c.name || '(без имени)').join(', ');
+        prompt += `Not yet described: ${names}. Once you actually describe such a child in the narration, record it with (values in Russian, matching the species — merfolk have tails and fins, dragons have scales, etc.):\n`;
+        prompt += `<!-- [CHILD_TRAITS:{"children":[{"name":"…","personality":["…","…"],"appearance":["…","…"]}]}] -->\n`;
+    }
 
     // ── Compliance — последним, чтобы модель держала это в фокусе ──
     prompt += `\n=== COMPLIANCE (read last, applies above everything else) ===\n`;

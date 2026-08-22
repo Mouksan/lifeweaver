@@ -61,6 +61,11 @@ export function showBirthDialog(children, preset, onConfirm) {
         if (child.fatherName) {
             traits.push(`<div class="lw-bd-trait"><span class="lw-dim">Отец:</span> ${escapeHtml(child.fatherName)}</div>`);
         }
+        // При поэтапном вылуплении модель описывает только тех, кто уже вылупился.
+        // «неизвестно» выглядит как сбой — честнее сказать, что будет дальше.
+        if (!traits.length) {
+            traits.push('<div class="lw-bd-trait lw-dim">Ещё не описан — характер и внешность появятся, когда о нём напишут в истории.</div>');
+        }
         const sexMark = child.sex === 'F' ? '♀' : child.sex === 'M' ? '♂' : '?';
         return `
             <div class="lw-bd-card">

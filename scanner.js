@@ -31,7 +31,7 @@
 //  - Нет SEX_REVEAL/BABY_TRAITS пока — вернутся отдельным заходом вместе
 //    с полями пола/черт в данных ребёнка.
 
-const KNOWN_TAGS = ['DAYS_PASSED', 'CONCEPTION_CHECK', 'LAY_CLUTCH', 'BIRTH', 'MISCARRIAGE', 'ABORTION', 'PREGNANCY_KNOWN', 'SEX_REVEAL', 'BABY_TRAITS'];
+const KNOWN_TAGS = ['DAYS_PASSED', 'CONCEPTION_CHECK', 'LAY_CLUTCH', 'BIRTH', 'MISCARRIAGE', 'ABORTION', 'PREGNANCY_KNOWN', 'SEX_REVEAL', 'BABY_TRAITS', 'CHILD_TRAITS'];
 // После имени тега может идти произвольная нагрузка: число (DAYS_PASSED:14),
 // список полов (SEX_REVEAL:M,F) или целый JSON (BABY_TRAITS:{...}).
 // Раньше тут допускались только цифры — теги с буквами и JSON не
@@ -142,6 +142,22 @@ function safeParseJson(raw) {
     }
 }
 
+// CHILD_TRAITS — дозаполнение черт уже родившихся детей. Нужен там, где
+// вдохновителю он не требовался: при кладке потомство вылупляется в несколько
+// сообщений, и у тех, кто вылупился позже, характер/внешность ещё неизвестны.
+const CHILD_TRAITS_RE = /<!--\s*\[CHILD_TRAITS:\s*(\{[\s\S]*?\})\s*\]\s*-->/i;
+
+export function scanChildTraits(text) {
+    if (!text) return null;
+    const m = text.match(CHILD_TRAITS_RE);
+    if (!m) return null;
+    const json = safeParseJson(m[1]);
+    if (!json) return null;
+    if (Array.isArray(json.children)) return json.children;
+    if (Array.isArray(json)) return json;
+    return [json];
+}
+
 export function scanBabyTraits(text, forChar = false) {
     if (!text) return null;
     const m = text.match(forChar ? BABY_TRAITS_CHAR_RE : BABY_TRAITS_RE);
@@ -233,13 +249,14 @@ export function scanMessage(text) {
         revealedSexes: extractRevealedSexes(text),
         babyTraits: scanBabyTraits(text, false),
         charBabyTraits: scanBabyTraits(text, true),
+        childTraits: scanChildTraits(text),
         daysPassed: scanDaysPassed(text),
     };
 
     const anyEvent = result.conception || result.charConception || result.layClutch || result.charLayClutch
         || result.birth || result.charBirth || result.miscarriage || result.charMiscarriage
         || result.abortion || result.charAbortion || result.known || result.charKnown
-        || result.sexRevealed || result.charSexRevealed;
+        || result.sexRevealed || result.charSexRevealed || (result.childTraits && result.childTraits.length);
     if (!anyEvent && result.daysPassed === 0) return null;
 
     return result;

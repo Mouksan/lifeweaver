@@ -525,12 +525,20 @@ function renderChildCard(child, preset) {
     const norms = getCareNorms(ageDays, child);
     const progress = getMilestoneProgress(child);
 
-    const traitsHtml = (child.personality?.length || child.appearance?.length) ? `
+    const traitsHtml = `
         <div class="lw-child-traits">
-            ${child.personality?.length ? `<div><span class="lw-dim">Характер:</span> ${child.personality.join(', ')}</div>` : ''}
-            ${child.appearance?.length ? `<div><span class="lw-dim">Внешность:</span> ${child.appearance.join(', ')}</div>` : ''}
+            <label class="lw-trait-field">
+                <span class="lw-dim">Характер:</span>
+                <input type="text" class="lw-input lw-child-personality" data-id="${child.id}"
+                       placeholder="через запятую" value="${(child.personality || []).join(', ')}">
+            </label>
+            <label class="lw-trait-field">
+                <span class="lw-dim">Внешность:</span>
+                <input type="text" class="lw-input lw-child-appearance" data-id="${child.id}"
+                       placeholder="через запятую" value="${(child.appearance || []).join(', ')}">
+            </label>
         </div>
-    ` : '';
+    `;
 
     const careBits = [norms.feeding, norms.sleep];
     if (ageDays < 1095) careBits.push(norms.diaper);
@@ -576,6 +584,15 @@ function bindChildEvents() {
     });
     $('.lw-child-age').on('change', function () {
         updateChildField($(this).data('id'), 'ageWeeks', Math.max(0, parseInt($(this).val()) || 0));
+        saveSettings();
+    });
+    const parseTraitList = (v) => String(v || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 4);
+    $('.lw-child-personality').on('change', function () {
+        updateChildField($(this).data('id'), 'personality', parseTraitList($(this).val()));
+        saveSettings();
+    });
+    $('.lw-child-appearance').on('change', function () {
+        updateChildField($(this).data('id'), 'appearance', parseTraitList($(this).val()));
         saveSettings();
     });
     $('.lw-child-sex').on('change', function () {

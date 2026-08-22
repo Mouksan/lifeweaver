@@ -26,7 +26,7 @@ import {
     getSettings, getChatData, getCurrentChatId,
     advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
     applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex, getActivePreset,
-    getCharacterData, isBlocked,
+    getCharacterData, isBlocked, applyChildTraits,
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
@@ -225,6 +225,12 @@ function applyScanResult(result, debug = null) {
             }
         }
         if (knownTag) setPregnancyKnown(who, true);
+    }
+
+    // Дозаполнение черт детей, описанных моделью позже (поэтапное вылупление)
+    if (result.childTraits) {
+        const filled = applyChildTraits(result.childTraits);
+        if (filled > 0) log(`дозаполнены черты детей: ${filled} пол${filled === 1 ? 'е' : 'ей'}`);
     }
 
     // Диалог рождения — после применения всех событий

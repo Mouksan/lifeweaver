@@ -320,6 +320,42 @@ export function updateChildField(id, field, value) {
     if (child) child[field] = value;
 }
 
+// Дети, у которых модель ещё не описала характер/внешность. Возникает при
+// поэтапном вылуплении кладки: первый малёк описан, остальные ещё в икринках.
+export function getChildrenMissingTraits() {
+    return getChildren().filter(c => !(c.personality?.length) || !(c.appearance?.length));
+}
+
+// Дозаполнение черт от модели (тег CHILD_TRAITS). Матчим по имени,
+// при отсутствии имени — по порядку среди неописанных.
+export function applyChildTraits(list) {
+    if (!Array.isArray(list) || list.length === 0) return 0;
+    const children = getChildren();
+    const missing = getChildrenMissingTraits();
+    let filled = 0;
+
+    for (let i = 0; i < list.length; i++) {
+        const entry = list[i] || {};
+        let target = null;
+        if (entry.name) {
+            const wanted = String(entry.name).trim().toLowerCase();
+            target = children.find(c => (c.name || '').trim().toLowerCase() === wanted);
+        }
+        if (!target) target = missing[i];
+        if (!target) continue;
+
+        if (Array.isArray(entry.personality) && entry.personality.length && !target.personality?.length) {
+            target.personality = entry.personality.slice(0, 4);
+            filled++;
+        }
+        if (Array.isArray(entry.appearance) && entry.appearance.length && !target.appearance?.length) {
+            target.appearance = entry.appearance.slice(0, 4);
+            filled++;
+        }
+    }
+    return filled;
+}
+
 export function archiveChild(id) {
     const children = getChildren();
     const idx = children.findIndex(c => c.id === id);

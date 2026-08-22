@@ -978,3 +978,19 @@
     padding: 3px 9px;
     font-size: 0.7rem;
 }
+
+/* Редактируемые черты ребёнка */
+.lw-trait-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.74rem;
+    margin-bottom: 4px;
+}
+
+.lw-trait-field .lw-input {
+    flex: 1;
+    min-width: 0;
+    padding: 3px 6px;
+    font-size: 0.74rem;
+}

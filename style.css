@@ -1159,67 +1159,140 @@
     color: var(--lw-text);
 }
 
-/* ═══ Инфоблок в чате ═══ */
+
+/* ═══════════════════════════════════════════════════════════════
+   ИНФОБЛОК В ЧАТЕ
+   Оформление портировано со style.css расширения-вдохновителя:
+   сворачиваемая секция <details>, шапка с иконкой-кружком, бейджем
+   и шевроном, тело с тонкой полосой прогресса и сеткой карточек-статов.
+   Цветовые акценты по типу секции — их же.
+   ═══════════════════════════════════════════════════════════════ */
+
 .lw-infoblock {
-    --lw-ib-accent: var(--SmartThemeQuoteColor, #c9a659);
+    margin: 6px 0;
     display: flex;
     flex-direction: column;
     gap: 6px;
-    margin: 10px 0;
-    padding: 9px 12px;
-    border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor, #999) 20%, transparent);
-    border-left: 3px solid var(--lw-ib-accent);
-    border-radius: 7px;
-    background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #000) 45%, transparent);
-    font-size: 0.78rem;
-    line-height: 1.5;
+    animation: lwFadeIn 0.3s ease;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-.lw-ib-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
+@keyframes lwFadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
-.lw-ib-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-weight: 600;
-    min-width: 92px;
+details.lw-ib { width: 100%; }
+details.lw-ib summary { list-style: none; cursor: pointer; }
+details.lw-ib summary::-webkit-details-marker { display: none; }
+
+/* ── Шапка ── */
+.lw-ib-header {
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    background: transparent;
+    border: 1.5px solid rgba(255,255,255,.18);
+    border-radius: 14px;
+    transition: border-radius .2s;
+}
+details.lw-ib[open] .lw-ib-header {
+    border-radius: 14px 14px 0 0;
+    border-bottom-color: transparent;
 }
 
-.lw-ib-dim {
-    opacity: 0.65;
+/* ── Иконка-кружок ── */
+.lw-ib-icon {
+    width: 26px; height: 26px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.lw-ib-icon i { font-size: 11px; }
+.lw-ib-icon.pregnancy   { border: 1.5px solid rgba(255,120,180,.4); }
+.lw-ib-icon.pregnancy i { color: rgba(255,120,180,.8); }
+.lw-ib-icon.clutch      { border: 1.5px solid rgba(255,180,60,.4); }
+.lw-ib-icon.clutch i    { color: rgba(255,180,60,.85); }
+.lw-ib-icon.baby        { border: 1.5px solid rgba(130,200,255,.4); }
+.lw-ib-icon.baby i      { color: rgba(130,200,255,.8); }
+.lw-ib-icon.cycle       { border: 1.5px solid rgba(180,120,255,.4); }
+.lw-ib-icon.cycle i     { color: rgba(180,120,255,.8); }
+
+/* ── Заголовок и бейдж ── */
+.lw-ib-title { font-weight: 600; font-size: 13px; color: rgba(255,255,255,.85); }
+.lw-ib-badge {
+    margin-left: auto; font-size: 10px; padding: 2px 8px; border-radius: 50px;
+    font-weight: 600; letter-spacing: .3px;
+}
+.lw-ib-badge.pregnancy { border: 1px solid rgba(255,120,180,.3); color: rgba(255,120,180,.9); }
+.lw-ib-badge.clutch    { border: 1px solid rgba(255,180,60,.3);  color: rgba(255,180,60,.9); }
+.lw-ib-badge.baby      { border: 1px solid rgba(130,200,255,.3); color: rgba(130,200,255,.9); }
+.lw-ib-badge.cycle     { border: 1px solid rgba(180,120,255,.3); color: rgba(180,120,255,.9); }
+
+/* ── Шеврон ── */
+.lw-ib-chev {
+    width: 16px; height: 16px; flex-shrink: 0; transition: transform .25s;
+    display: flex; align-items: center; justify-content: center;
+}
+.lw-ib-chev i { font-size: 10px; color: rgba(255,255,255,.3); }
+details.lw-ib[open] .lw-ib-chev { transform: rotate(180deg); }
+
+/* ── Тело ── */
+.lw-ib-c {
+    padding: 12px 16px;
+    background: transparent;
+    border: 1.5px solid rgba(255,255,255,.18); border-top: none;
+    border-radius: 0 0 14px 14px;
 }
 
-.lw-ib-warn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 1px 7px;
-    border-radius: 4px;
-    background: rgba(200, 120, 70, 0.16);
-    font-size: 0.72rem;
-}
-
+/* ── Полоса прогресса ── */
 .lw-ib-bar {
-    flex: 1 1 90px;
-    height: 4px;
-    min-width: 70px;
-    border-radius: 2px;
-    background: rgba(255, 255, 255, 0.09);
-    overflow: hidden;
+    height: 3px; background: rgba(255,255,255,.08); border-radius: 50px;
+    overflow: hidden; margin-bottom: 10px;
 }
+.lw-ib-bar-fill { height: 100%; border-radius: 50px; transition: width .3s; }
+.lw-ib-bar-fill.pregnancy { background: #ff9eb4; }
+.lw-ib-bar-fill.clutch    { background: #ffb43c; }
+.lw-ib-bar-fill.baby      { background: #82c8ff; }
+.lw-ib-bar-fill.cycle     { background: #b478ff; }
 
-.lw-ib-fill {
-    height: 100%;
-    border-radius: 2px;
-    background: var(--lw-ib-accent);
+/* ── Сетка и карточки ── */
+.lw-ib-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.lw-ib-stat {
+    display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 10px;
 }
+.lw-ib-wide { grid-column: 1 / -1; }
 
-.lw-ib-child .lw-ib-label {
-    font-weight: 500;
+.lw-ib-si {
+    width: 20px; height: 20px; flex-shrink: 0; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+}
+.lw-ib-si i { font-size: 10px; }
+.lw-ib-si.green  i { color: rgba(0,200,130,.7); }
+.lw-ib-si.pink   i { color: rgba(255,100,150,.7); }
+.lw-ib-si.purple i { color: rgba(180,120,255,.7); }
+.lw-ib-si.blue   i { color: rgba(130,200,255,.7); }
+.lw-ib-si.orange i { color: rgba(255,180,60,.7); }
+.lw-ib-si.red    i { color: rgba(255,80,80,.7); }
+
+.lw-ib-lbl { color: rgba(255,255,255,.35); font-size: 9px; }
+.lw-ib-val { color: rgba(255,255,255,.85); font-size: 11px; font-weight: 600; }
+.lw-ib-val-warn { color: rgba(255,170,0,.9) !important; }
+
+/* ── Примечание на всю ширину ── */
+.lw-ib-note {
+    grid-column: 1 / -1; margin-top: 6px; padding: 8px 12px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 10px; font-size: 10px; color: rgba(255,255,255,.5);
+    line-height: 1.5; font-style: italic;
+}
+.lw-ib-warnnote {
+    font-style: normal;
+    border-color: rgba(255,170,0,.3);
+    color: rgba(255,170,0,.85);
+}
+.lw-ib-warnnote i { margin-right: 4px; opacity: .8; }
+
+@media (max-width: 520px) {
+    .lw-ib-grid { grid-template-columns: 1fr; }
 }

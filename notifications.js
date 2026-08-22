@@ -8,6 +8,16 @@
 
 import { sexLabel } from './baby-care.js';
 
+// Русское склонение по числу: 1 малыш, 2 малыша, 5 малышей
+export function plural(n, one, few, many) {
+    const abs = Math.abs(n) % 100;
+    const last = abs % 10;
+    if (abs > 10 && abs < 20) return many;
+    if (last > 1 && last < 5) return few;
+    if (last === 1) return one;
+    return many;
+}
+
 function escapeHtml(str) {
     return String(str ?? '').replace(/[&<>"']/g, c => (
         { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -37,7 +47,8 @@ export function showBirthDialog(children, preset, onConfirm) {
 
     const isClutch = preset?.gestationType === 'staged';
     const title = isClutch ? 'Потомство вылупилось!' : 'Роды!';
-    const noun = children.length === 1 ? 'малыш' : 'малыши';
+    const n = children.length;
+    const noun = plural(n, 'малыш', 'малыша', 'малышей');
 
     const cardsHtml = children.map((child, i) => {
         const traits = [];
@@ -69,7 +80,7 @@ export function showBirthDialog(children, preset, onConfirm) {
         <div id="lw_birth_overlay" class="lw-overlay lw-open">
             <div class="lw-bd-panel">
                 <h2 class="lw-bd-title">${title}</h2>
-                <p class="lw-bd-sub">${children.length} ${noun} — можно дать имена сразу или позже в разделе «Ребёнок».</p>
+                <p class="lw-bd-sub">${n} ${noun} — можно дать имена сразу или позже в разделе «Ребёнок».</p>
                 <div class="lw-bd-list">${cardsHtml}</div>
                 <div class="lw-bd-actions">
                     <button type="button" class="lw-btn" id="lw_bd_confirm">Сохранить</button>

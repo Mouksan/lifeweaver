@@ -266,6 +266,13 @@ function renderPregnancySection(preset) {
     bindPregnancyEvents();
 }
 
+// Текст плашки потери: на стадии инкубации потеряна кладка, а не «беременность»
+function lossTitle(loss, preset) {
+    const wasClutch = loss.stage === 'clutch';
+    if (loss.reason === 'abortion') return wasClutch ? 'Кладка уничтожена' : 'Беременность прервана';
+    return wasClutch ? 'Кладка погибла' : 'Беременность потеряна';
+}
+
 function renderPregnancyCard(who, preset, settings) {
     const data = getCharacterData(who);
     const name = carrierDisplayName(who);
@@ -279,8 +286,8 @@ function renderPregnancyCard(who, preset, settings) {
         const lossHtml = loss ? `
             <div class="lw-loss-note">
                 <i class="fa-solid fa-heart-crack"></i>
-                ${loss.reason === 'abortion' ? 'Беременность прервана' : 'Беременность потеряна'}
-                <span class="lw-dim">· ${loss.weeks} нед. · ${loss.offspringCount} ${(loss.offspringLabel || '').toLowerCase()}</span>
+                ${lossTitle(loss, preset)}
+                <span class="lw-dim">· ${loss.weeks} нед. · ${loss.offspringCount}</span>
                 <button type="button" class="lw-btn lw-btn-muted lw-clear-loss" data-who="${who}">Скрыть</button>
             </div>
         ` : '';

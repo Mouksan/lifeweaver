@@ -308,6 +308,10 @@ export function completeBirth(who, traits = null) {
     }
 
     character.pregnancy = cloneDefault(defaultPregnancyData);
+    // Роды прошли успешно — плашка о прошлой потере больше не актуальна.
+    // Иначе после рождения детей в карточке висит «Беременность потеряна»,
+    // хотя всё закончилось хорошо.
+    clearLastLoss(who);
     return created;
 }
 

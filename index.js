@@ -950,20 +950,29 @@ function renderPostpartumCard(who, preset) {
 
 function renderLooksCard(who, preset) {
     const looks = getLooks(who);
-    const opts = (list, cur) => ['<option value="">—</option>']
-        .concat(list.map(o => `<option value="${o}" ${cur === o ? 'selected' : ''}>${o}</option>`)).join('');
+    // Свободный ввод, а не выбор из списка: в фэнтези глаза бывают золотые,
+    // фиолетовые, серебряные — какими угодно. Подсказки только помогают.
     return `
         <div class="lw-card" style="--lw-card-accent: ${preset.color}">
             <div class="lw-card-label">${carrierDisplayName(who)}</div>
             <div class="lw-aid-row">
                 <span class="lw-dim">Глаза:</span>
-                <select class="lw-select lw-looks" data-who="${who}" data-field="eyes">${opts(EYE_OPTIONS, looks.eyes)}</select>
+                <input type="text" class="lw-input lw-looks" data-who="${who}" data-field="eyes"
+                       list="lw_eye_hints" placeholder="любой цвет" value="${looks.eyes || ''}">
             </div>
             <div class="lw-aid-row">
                 <span class="lw-dim">Волосы:</span>
-                <select class="lw-select lw-looks" data-who="${who}" data-field="hair">${opts(HAIR_OPTIONS, looks.hair)}</select>
+                <input type="text" class="lw-input lw-looks" data-who="${who}" data-field="hair"
+                       list="lw_hair_hints" placeholder="любой цвет" value="${looks.hair || ''}">
             </div>
         </div>
+    `;
+}
+
+function renderLooksHints() {
+    return `
+        <datalist id="lw_eye_hints">${EYE_OPTIONS.map(o => `<option value="${o}">`).join('')}</datalist>
+        <datalist id="lw_hair_hints">${HAIR_OPTIONS.map(o => `<option value="${o}">`).join('')}</datalist>
     `;
 }
 
@@ -980,7 +989,8 @@ function renderHealthSection(preset) {
         ${ppHtml ? `<h3 class="lw-content-subtitle">Послеродовое восстановление</h3><div class="lw-cycle-grid">${ppHtml}</div>` : ''}
         ${testsHtml ? `<h3 class="lw-content-subtitle">Тесты на беременность</h3><div class="lw-cycle-grid">${testsHtml}</div>` : ''}
         <h3 class="lw-content-subtitle">Внешность родителей</h3>
-        <p class="lw-placeholder-note">От неё дети наследуют глаза и волосы: тёмное доминирует, но рецессивный признак проявляется примерно в трети случаев. Модель дополняет остальное сама.</p>
+        <p class="lw-placeholder-note">От неё дети наследуют глаза и волосы. Для обычных цветов работает наследование: тёмное доминирует, рецессивное проявляется примерно в трети случаев. Необычные цвета (золотые, фиолетовые) наследуются от одного из родителей поровну. Остальное модель дописывает сама.</p>
+        ${renderLooksHints()}
         <div class="lw-cycle-grid">${looksHtml}</div>
         <p class="lw-placeholder-note">Осложнения определяются один раз при зачатии и проявляются по мере срока. Врач лечит обычное с шансом 75%, критическое — 50%.</p>
     `);

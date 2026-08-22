@@ -223,13 +223,19 @@ const HAIR_RANK = { 'чёрные': 4, 'тёмные': 3, 'русые': 2, 'ры
 export const EYE_OPTIONS = Object.keys(EYE_RANK);
 export const HAIR_OPTIONS = Object.keys(HAIR_RANK);
 
+// Приводит цвет к известному признаку из таблицы рангов. Если цвет в таблице
+// не значится (золотые, фиолетовые, серебряные — фэнтези-сеттингов это
+// касается постоянно), возвращаем его как есть: он полноправный признак,
+// просто без ранга. Ранжировать выдуманные цвета по «темноте» бессмысленно.
 function normalizeTrait(v, ranks) {
     if (!v || typeof v !== 'string') return null;
-    const low = v.toLowerCase();
+    const trimmed = v.trim();
+    if (!trimmed) return null;
+    const low = trimmed.toLowerCase();
     for (const key of Object.keys(ranks)) {
         if (low.includes(key.slice(0, 4))) return key;
     }
-    return null;
+    return low;
 }
 
 function pickInherited(a, b, ranks, rnd) {
@@ -239,9 +245,19 @@ function pickInherited(a, b, ranks, rnd) {
     if (!na) return nb;
     if (!nb) return na;
     if (na === nb) return na;
-    const dominant = (ranks[na] || 0) >= (ranks[nb] || 0) ? na : nb;
-    const recessive = dominant === na ? nb : na;
-    return rnd() < 0.7 ? dominant : recessive;
+
+    const ra = ranks[na];
+    const rb = ranks[nb];
+    // Оба цвета известны таблице — менделевская модель вдохновителя:
+    // доминантный (тёмный) в 70% случаев, рецессивный в 30%.
+    if (ra !== undefined && rb !== undefined) {
+        const dominant = ra >= rb ? na : nb;
+        const recessive = dominant === na ? nb : na;
+        return rnd() < 0.7 ? dominant : recessive;
+    }
+    // Хотя бы один цвет вне таблицы — сравнивать по «темноте» нечего,
+    // честная монетка между родителями.
+    return rnd() < 0.5 ? na : nb;
 }
 
 // Наследование внешности ребёнка от родителей. Возвращает { eyes, hair }.

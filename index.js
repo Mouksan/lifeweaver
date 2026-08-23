@@ -17,6 +17,7 @@ import {
     getClutches, setClutchWeeks, hatchClutch, removeClutch, migrateLegacyClutch,
     getHealthHolders, doctorVisit, takeTest, getCurrentChatId, addExistingChild,
     getLooks, setLooks, getPostpartum, setLactating, clearPostpartum, getDynamic, getChildDynamic,
+    getCyclePhase, getAvatarUrl,
     createUndoCheckpoint, undoLastChange, canUndo, lastUndoLabel,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
@@ -26,7 +27,7 @@ import { showBirthDialog, showNotification } from './notifications.js';
 import { renderInfoblock } from './infoblock.js';
 import { scanFullHistory, estimateHistory } from './history-scan.js';
 import { activeComplications, getHealthInfo, TEST_LABELS, EYE_OPTIONS, HAIR_OPTIONS, bodyPoolFor } from './health.js';
-import { getSymptoms, getRecommendation } from './symptoms.js';
+import { getSymptoms, getRecommendation, getCycleState } from './symptoms.js';
 import { updatePromptInjection, buildPrompt } from './prompts.js';
 
 const extensionFolderPath = `scripts/extensions/${extensionName}`;
@@ -189,44 +190,213 @@ function renderContent() {
     `);
 }
 
+function avatarHtml(who, size = 'md') {
+    const url = getAvatarUrl(who);
+    const name = carrierDisplayName(who);
+    const initial = (name || '?').trim().charAt(0).toUpperCase();
+    return url
+        ? `<div class="lw-av lw-av-${size}"><img src="${url}" alt="" onerror="this.parentNode.textContent='${initial}'"></div>`
+        : `<div class="lw-av lw-av-${size} lw-av-ph">${initial}</div>`;
+}
+
+function childAvatarHtml(child) {
+    const icon = child.sex === 'M' ? 'fa-mars' : child.sex === 'F' ? 'fa-venus' : 'fa-baby';
+    const tone = child.sex === 'M' ? 'blue' : child.sex === 'F' ? 'pink' : 'neutral';
+    return `<div class="lw-av lw-av-sm lw-av-ph lw-av-${tone}"><i class="fa-solid ${icon}"></i></div>`;
+}
+
+// Карточка-превью: клик уводит в свой раздел
+function tile(section, title, bodyHtml, opts = {}) {
+    return `
+        <div class="lw-tile ${opts.wide ? 'lw-tile-wide' : ''}" data-goto="${section}" style="${opts.accent ? `--lw-card-accent:${opts.accent}` : ''}">
+            <div class="lw-tile-head">
+                <span class="lw-tile-title">${title}</span>
+                <span class="lw-tile-go"><i class="fa-solid fa-arrow-right"></i></span>
+            </div>
+            ${bodyHtml}
+        </div>
+    `;
+}
+
+function chip(label, value, tone = '') {
+    return `<div class="lw-chip ${tone}"><span class="lw-chip-l">${label}</span><span class="lw-chip-v">${value}</span></div>`;
+}
+
+// ── Кто отслеживается ──
+function carrierTile(preset) {
+    const rows = ['user', 'char'].map(who => {
+        const c = getCharacterData(who);
+        const badge = preset.cycleSystem === 'abo'
+            ? `<span class="lw-tile-sub">${designationLabel(c.designation)}</span>` : '';
+        return `
+            <div class="lw-person">
+                ${avatarHtml(who)}
+                <div>
+                    <div class="lw-person-name">${carrierDisplayName(who)}</div>
+                    ${badge}
+                    <div class="lw-person-note">${c.canCarry ? 'может вынашивать' : 'не носитель'}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    return tile('pregnancy', 'Кто отслеживается', `<div class="lw-persons">${rows}</div>`, { accent: preset.color });
+}
+
+// ── Цикл ──
+function cycleTile(preset) {
+    if (preset.cycleSystem !== 'abo') {
+        return tile('cycle', 'Цикл', `<div class="lw-tile-big">Нет цикла</div>
+            <div class="lw-tile-sub">В этой вселенной зачатие не завязано на течку</div>`);
+    }
+    const parts = ['user', 'char'].map(who => {
+        const phase = getCyclePhase(who);
+        if (!phase) return '';
+        const c = getCharacterData(who);
+        const st = getCycleState(phase.key, phase.day, c.cycleDay);
+        const hot = phase.key === 'heat' || phase.key === 'rut';
+        return `
+            <div class="lw-cyc ${hot ? 'lw-cyc-hot' : ''}">
+                <div class="lw-cyc-top">${carrierDisplayName(who)}</div>
+                <div class="lw-tile-big">${st.label}</div>
+                ${phase.len ? `<div class="lw-tile-sub">День ${phase.day} / ${phase.len}</div>
+                    <div class="lw-bar"><div class="lw-bar-fill" style="width:${(phase.day / phase.len) * 100}%"></div></div>` : ''}
+                ${phase.daysLeft !== null && !hot ? `<div class="lw-tile-sub">${phase.kind === 'rut' ? 'до гона' : 'до течки'} ${phase.daysLeft} дн.</div>` : ''}
+            </div>
+        `;
+    }).filter(Boolean).join('');
+    return tile('cycle', 'Цикл', `<div class="lw-cycs">${parts}</div>`, { accent: preset.color });
+}
+
+// ── Краткое состояние: живое от модели, иначе — по фазе цикла ──
+function stateTile(preset) {
+    const chips = [];
+    for (const who of ['user', 'char']) {
+        const c = getCharacterData(who);
+        const dyn = getDynamic(who);
+        const name = carrierDisplayName(who);
+
+        if (c.pregnancy?.isPregnant) {
+            const info = getHealthInfo(c.pregnancy.healthStatus || 'normal');
+            chips.push(chip(`${name} · здоровье`, info.text, `lw-chip-${info.tone}`));
+            if (dyn.mood) chips.push(chip(`${name} · настроение`, dyn.mood));
+            if (dyn.libido) chips.push(chip(`${name} · либидо`, dyn.libido));
+            if (dyn.physical) chips.push(chip(`${name} · тело`, dyn.physical));
+        } else {
+            const phase = getCyclePhase(who);
+            if (!phase || phase.key === 'beta') continue;
+            const st = getCycleState(phase.key, phase.day, c.cycleDay);
+            const hot = phase.key === 'heat' || phase.key === 'rut';
+            chips.push(chip(`${name} · настроение`, st.mood, hot ? 'lw-chip-warning' : ''));
+            chips.push(chip(`${name} · либидо`, st.libido, hot ? 'lw-chip-warning' : ''));
+            chips.push(chip(`${name} · энергия`, st.energy));
+        }
+    }
+    if (!chips.length) chips.push(chip('Состояние', 'ничего не отслеживается'));
+    return tile('health', 'Краткое состояние', `<div class="lw-chips">${chips.join('')}</div>`, { accent: preset.color });
+}
+
+// ── Беременность и кладки ──
+function pregnancyTile(preset) {
+    const blocks = [];
+    for (const who of ['user', 'char']) {
+        const p = getCharacterData(who).pregnancy;
+        if (!p?.isPregnant) continue;
+        const max = currentStageMaxWeeks(preset, p);
+        const hidden = getSettings().hiddenPregnancy && !isPregnancyObvious(who);
+        const dyn = getDynamic(who);
+        const stage = preset.gestationType === 'staged' ? preset.stages.first.label : 'Беременность';
+        blocks.push(`
+            <div class="lw-preg">
+                <div class="lw-preg-top">${avatarHtml(who, 'sm')}<span>${carrierDisplayName(who)}</span></div>
+                <div class="lw-tile-big">${hidden ? '—' : `${p.weeks} нед.`}</div>
+                <div class="lw-tile-sub">${hidden ? 'ещё не знает' : `${stage} · до конца ${max - p.weeks} нед.`}</div>
+                <div class="lw-bar"><div class="lw-bar-fill" style="width:${hidden ? 0 : (p.weeks / max) * 100}%"></div></div>
+                ${!hidden && (dyn.fetus_size || dyn.clutch_size) ? `<div class="lw-tile-sub">${dyn.fetus_size || dyn.clutch_size}</div>` : ''}
+            </div>
+        `);
+    }
+    for (const cl of getClutches()) {
+        const op = resolvePreset(cl.universe);
+        blocks.push(`
+            <div class="lw-preg">
+                <div class="lw-preg-top"><i class="fa-solid fa-egg"></i><span>${termsOf(op).clutch}</span></div>
+                <div class="lw-tile-big">${cl.weeks} нед.</div>
+                <div class="lw-tile-sub">${cl.offspringCount} ${(op.offspringLabel || '').toLowerCase()} · до вылупления ${cl.totalWeeks - cl.weeks} нед.</div>
+                <div class="lw-bar"><div class="lw-bar-fill" style="width:${(cl.weeks / cl.totalWeeks) * 100}%"></div></div>
+            </div>
+        `);
+    }
+    if (!blocks.length) {
+        blocks.push(`<div class="lw-tile-sub">Сейчас никто не вынашивает</div>`);
+    }
+    return tile('pregnancy', 'Беременность', `<div class="lw-pregs">${blocks.join('')}</div>`,
+        { wide: true, accent: preset.color });
+}
+
+// ── Дети ──
+function childrenTile(preset) {
+    const children = getChildren();
+    if (!children.length) {
+        return tile('child', 'Дети', `<div class="lw-tile-sub">Пока никого</div>`, { accent: preset.color });
+    }
+    const rows = children.slice(0, 4).map(child => {
+        const days = childAgeDays(child);
+        const stage = getGrowthStage(days);
+        const cd = getChildDynamic(child.id);
+        const needs = getCareNeeds(days, getTimeForCare(), child, getRpDay());
+        return `
+            <div class="lw-person">
+                ${childAvatarHtml(child)}
+                <div>
+                    <div class="lw-person-name">${child.name || 'Без имени'}</div>
+                    <div class="lw-tile-sub">${formatAge(days)}${stage ? ` · ${stage.label}` : ''}</div>
+                    <div class="lw-person-note">${cd.mood || cd.sleep || needs.sleep}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    const more = children.length > 4 ? `<div class="lw-tile-sub">…и ещё ${children.length - 4}</div>` : '';
+    return tile('child', 'Дети', `<div class="lw-persons">${rows}</div>${more}`, { accent: preset.color });
+}
+
+// ── Семейное древо (превью) ──
+function treeTile(preset) {
+    const kids = [...getChildren(), ...getGrownChildren()];
+    const parents = ['user', 'char'].map(who => `
+        <div class="lw-tt-node">${avatarHtml(who, 'sm')}<span>${carrierDisplayName(who)}</span></div>
+    `).join('');
+    const kidNodes = kids.slice(0, 5).map(c => `
+        <div class="lw-tt-node lw-tt-kid">${childAvatarHtml(c)}<span>${c.name || '—'}</span></div>
+    `).join('');
+    return tile('tree', 'Семейное древо', `
+        <div class="lw-tt-row">${parents}</div>
+        ${kidNodes ? `<div class="lw-tt-line"></div><div class="lw-tt-row">${kidNodes}</div>` : ''}
+        ${kids.length > 5 ? `<div class="lw-tile-sub">…и ещё ${kids.length - 5}</div>` : ''}
+    `, { wide: true, accent: preset.color });
+}
+
 function renderOverviewSection(preset) {
     $('#lw_content').html(`
-        <h2 class="lw-content-title">Обзор</h2>
-        <div class="lw-card" style="--lw-card-accent: ${preset.color}">
-            <div class="lw-card-label">Активная вселенная в этом чате</div>
-            <div class="lw-card-value">${preset.label} <span class="lw-dim">(${preset.sublabel})</span></div>
-            <div class="lw-card-sub">${summarizePreset(preset)}</div>
+        <div class="lw-overview">
+            ${carrierTile(preset)}
+            ${cycleTile(preset)}
+            ${stateTile(preset)}
+            ${pregnancyTile(preset)}
+            ${childrenTile(preset)}
+            ${treeTile(preset)}
         </div>
-        <div class="lw-card">
-            <div class="lw-card-label">Автоматика</div>
-            <div class="lw-day-control">
-                <label>День истории:</label>
-                <input type="number" class="lw-input" id="lw_rpday_input" min="0" value="${getRpDay()}">
-                <label style="margin-left:12px;">Время:</label>
-                <input type="text" class="lw-input" id="lw_rptime_input" placeholder="ЧЧ:ММ" style="width:70px;" value="${getRpTime() || ''}">
-                <select class="lw-select" id="lw_tod_select">
-                    ${Object.values(TIME_BUCKETS).map(t => `<option value="${t.id}" ${getTimeOfDay() === t.id ? 'selected' : ''}>${t.label}</option>`).join('')}
-                </select>
-            </div>
-            <div class="lw-card-sub">Двигается тегом <code>DAYS_PASSED</code> от модели. Можно поправить руками, если накрутилось лишнего.</div>
+        <div class="lw-ov-foot">
+            <span class="lw-dim">День истории: ${getRpDay()}${getRpTime() ? ` · ${getRpTime()}` : ''}</span>
+            <span class="lw-dim">${summarizePreset(preset)}</span>
         </div>
-        <p class="lw-placeholder-note">Остальные карточки обзора (здоровье, цикл, беременность одной строкой) соберутся по мере того, как наполнятся сами разделы.</p>
     `);
 
-    $('#lw_rpday_input').on('change', function () {
-        const applied = setRpDay($(this).val());
-        $(this).val(applied);
-        saveSettings();
-    });
-    $('#lw_tod_select').on('change', function () {
-        setTimeOfDay($(this).val());
-        $('#lw_rptime_input').val('');
-        saveSettings();
-    });
-    $('#lw_rptime_input').on('change', function () {
-        const applied = setRpTime($(this).val());
-        $(this).val(applied || '');
-        saveSettings();
+    // Клик по карточке уводит в её раздел
+    $('.lw-tile').on('click', function () {
+        const target = $(this).data('goto');
+        if (!target) return;
+        activeSection = target;
+        renderSidebar();
         renderContent();
     });
 }

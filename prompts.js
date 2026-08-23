@@ -24,10 +24,10 @@
 
 import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { extensionName, CONTRACEPTION_TYPES, termsOf } from './config.js';
-import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid, getHealthHolders, predictTest, getPostpartum, getDynamic, getChildDynamic } from './state.js';
+import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid, getHealthHolders, predictTest, getPostpartum, getDynamic, getChildDynamic, getCyclePhase } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { activeComplications, TEST_LABELS, bodyPoolFor } from './health.js';
-import { getSymptoms, getRecommendation } from './symptoms.js';
+import { getSymptoms, getRecommendation, getCycleState } from './symptoms.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, timeBucket, formatAge, sexLabel } from './baby-care.js';
 
 function designationLabelEn(d) {
@@ -59,6 +59,14 @@ function universeContext(preset) {
             phaseLine = 'no cycle';
         }
         b += `${name} is ${designationLabelEn(character.designation)} (${phaseLine}).\n`;
+        // Телесное состояние фазы — то, чего у вдохновителя для течки/гона
+        // не было вовсе: у них энергия и настроение жили только в
+        // менструальных фазах, а мы месячные выбросили.
+        const phase = getCyclePhase(who);
+        if (phase && phase.key !== 'normal' && phase.key !== 'beta') {
+            const st = getCycleState(phase.key, phase.day, character.cycleDay);
+            b += `  ${name} right now: ${st.body.join('; ')}. Mood ${st.mood}; libido ${st.libido}; energy ${st.energy}.\n`;
+        }
     }
     return b;
 }

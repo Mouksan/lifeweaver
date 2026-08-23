@@ -1391,3 +1391,122 @@ details.lw-ib[open] .lw-ib-chev { transform: rotate(180deg); }
     font-style: italic;
     color: var(--lw-text-dim);
 }
+
+/* ═══════════════════════════════════════════
+   ОБЗОР — плитки-превью с переходом в разделы
+   ═══════════════════════════════════════════ */
+
+.lw-overview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+}
+
+.lw-tile {
+    --lw-card-accent: var(--lw-accent);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 14px 16px;
+    border: 1px solid var(--lw-border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--lw-panel-alt) 70%, transparent);
+    cursor: pointer;
+    transition: transform .18s ease, border-color .18s ease, background .18s ease;
+}
+
+.lw-tile:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--lw-card-accent) 55%, transparent);
+    background: color-mix(in srgb, var(--lw-card-accent) 8%, var(--lw-panel-alt));
+}
+
+.lw-tile-wide { grid-column: 1 / -1; }
+
+.lw-tile-head {
+    display: flex; align-items: center; justify-content: space-between;
+}
+
+.lw-tile-title {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--lw-text-dim);
+}
+
+.lw-tile-go {
+    opacity: 0; transform: translateX(-4px);
+    transition: opacity .18s ease, transform .18s ease;
+    color: var(--lw-card-accent); font-size: 0.75rem;
+}
+.lw-tile:hover .lw-tile-go { opacity: 1; transform: translateX(0); }
+
+.lw-tile-big {
+    font-family: var(--lw-font-display);
+    font-size: 1.5rem; line-height: 1.15;
+}
+
+.lw-tile-sub { font-size: 0.75rem; color: var(--lw-text-dim); }
+
+/* Аватары */
+.lw-av {
+    border-radius: 50%; overflow: hidden; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,.06);
+    border: 1px solid var(--lw-border);
+    font-family: var(--lw-font-display);
+}
+.lw-av img { width: 100%; height: 100%; object-fit: cover; }
+.lw-av-md { width: 42px; height: 42px; font-size: 1rem; }
+.lw-av-sm { width: 26px; height: 26px; font-size: .75rem; }
+.lw-av-ph { color: var(--lw-text-dim); }
+.lw-av-blue    { border-color: rgba(130,200,255,.45); color: rgba(130,200,255,.9); }
+.lw-av-pink    { border-color: rgba(255,120,180,.45); color: rgba(255,120,180,.9); }
+.lw-av-neutral { color: var(--lw-text-dim); }
+
+/* Люди списком */
+.lw-persons { display: flex; flex-direction: column; gap: 10px; }
+.lw-person { display: flex; align-items: center; gap: 10px; }
+.lw-person-name { font-size: .9rem; font-weight: 600; }
+.lw-person-note { font-size: .72rem; color: var(--lw-text-dim); }
+
+/* Цикл */
+.lw-cycs { display: flex; flex-direction: column; gap: 12px; }
+.lw-cyc-top { font-size: .72rem; color: var(--lw-text-dim); }
+.lw-cyc-hot .lw-tile-big { color: color-mix(in srgb, var(--lw-card-accent) 75%, var(--lw-text)); }
+
+/* Чипы состояния */
+.lw-chips { display: flex; flex-direction: column; gap: 6px; }
+.lw-chip {
+    display: flex; justify-content: space-between; gap: 10px;
+    padding: 5px 9px; border-radius: 6px;
+    background: rgba(255,255,255,.04);
+    border-left: 2px solid var(--lw-border);
+    font-size: .76rem;
+}
+.lw-chip-l { color: var(--lw-text-dim); white-space: nowrap; }
+.lw-chip-v { text-align: right; }
+.lw-chip-normal   { border-left-color: rgba(90,168,106,.7); }
+.lw-chip-warning  { border-left-color: rgba(200,160,70,.8); }
+.lw-chip-critical { border-left-color: rgba(194,90,74,.9); }
+
+/* Беременности */
+.lw-pregs { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.lw-preg { display: flex; flex-direction: column; gap: 5px; }
+.lw-preg-top { display: flex; align-items: center; gap: 7px; font-size: .78rem; color: var(--lw-text-dim); }
+
+/* Древо-превью */
+.lw-tt-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.lw-tt-node {
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 10px; border: 1px solid var(--lw-border); border-radius: 20px;
+    font-size: .78rem;
+}
+.lw-tt-kid { opacity: .85; }
+.lw-tt-line { width: 1px; height: 16px; background: var(--lw-border); margin: 0 auto; }
+
+.lw-ov-foot {
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+    margin-top: 16px; padding-top: 10px;
+    border-top: 1px solid var(--lw-border);
+    font-size: .73rem;
+}

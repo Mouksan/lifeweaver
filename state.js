@@ -10,6 +10,7 @@
 
 import { extension_settings } from '../../../extensions.js';
 import { bucketFromHour } from './baby-care.js';
+import { getHeatPhase, getRutPhase } from './cycle.js';
 import { rollPlannedComplications, revealComplications, bodyPoolFor, treatComplications, rollTest, seededRandom, activeComplications, inheritedLooksList, postpartumState } from './health.js';
 import { extensionName, defaultSettings, defaultChatData, defaultCharacterData, defaultPregnancyData, getPreset, getTotalWeeks, rollOffspringCount, CONTRACEPTION_TYPES, buildCustomPreset } from './config.js';
 
@@ -728,6 +729,41 @@ export function undoLastChange() {
 export function clearUndoStack() {
     const chat = getChatData();
     chat._undo = [];
+}
+
+// ── Фаза цикла носителя одной структурой (для UI и промпта) ──
+export function getCyclePhase(who) {
+    const character = getCharacterData(who);
+    const preset = getActivePreset();
+    if (preset.cycleSystem !== 'abo') return null;
+
+    const cfg = getCycleSettings();
+    if (character.designation === 'omega') {
+        const ph = getHeatPhase(character.cycleDay, cfg);
+        return { key: ph.phase, day: ph.day, len: ph.len, label: ph.label, daysLeft: ph.daysLeft, kind: 'heat' };
+    }
+    if (character.designation === 'alpha') {
+        const ph = getRutPhase(character.cycleDay, cfg);
+        return { key: ph.phase === 'rut' ? 'rut' : 'normal', day: ph.day, len: ph.len, label: ph.label, daysLeft: ph.daysLeft, kind: 'rut' };
+    }
+    return { key: 'beta', day: 0, len: 0, label: 'Бета — цикла нет', daysLeft: null, kind: 'beta' };
+}
+
+// Аватар персонажа из SillyTavern: у карточки свой, у персоны свой.
+// Грузить руками не надо — ST их уже хранит.
+export function getAvatarUrl(who) {
+    try {
+        const ctx = typeof SillyTavern?.getContext === 'function' ? SillyTavern.getContext() : null;
+        if (!ctx) return null;
+        if (who === 'char') {
+            const ch = ctx.characters?.[ctx.characterId];
+            return ch?.avatar && ch.avatar !== 'none' ? `/characters/${encodeURIComponent(ch.avatar)}` : null;
+        }
+        const ua = ctx.userAvatar || (typeof window !== 'undefined' ? window.user_avatar : null);
+        return ua ? `/User%20Avatars/${encodeURIComponent(ua)}` : null;
+    } catch (e) {
+        return null;
+    }
 }
 
 // ═══════════════════════════════════════════

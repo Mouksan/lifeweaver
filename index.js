@@ -330,7 +330,7 @@ function pregnancyTile(preset) {
         blocks.push(`<div class="lw-tile-sub">Сейчас никто не вынашивает</div>`);
     }
     return tile('pregnancy', 'Беременность', `<div class="lw-pregs">${blocks.join('')}</div>`,
-        { wide: true, accent: preset.color });
+        { wide: blocks.length > 2, accent: preset.color });
 }
 
 // ── Дети ──
@@ -372,7 +372,7 @@ function treeTile(preset) {
         <div class="lw-tt-row">${parents}</div>
         ${kidNodes ? `<div class="lw-tt-line"></div><div class="lw-tt-row">${kidNodes}</div>` : ''}
         ${kids.length > 5 ? `<div class="lw-tile-sub">…и ещё ${kids.length - 5}</div>` : ''}
-    `, { wide: true, accent: preset.color });
+    `, { wide: kids.length > 2, accent: preset.color });
 }
 
 function renderOverviewSection(preset) {

@@ -2036,3 +2036,27 @@ details.lw-ib[open] .lw-ib-chev { transform: rotate(180deg); }
     margin-left: 34px;
     font-size: .8rem;
 }
+
+/* ═══ Кнопка в дровере расширений ═══
+   Широкая на всю ширину, с иконкой — как у соседних расширений,
+   иначе текст переносится и кнопка выглядит огрызком. */
+.lw-drawer-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+#lifeweaver_settings .lw-drawer-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    white-space: nowrap;
+}
+
+#lifeweaver_settings .lw-drawer-btn i {
+    opacity: .8;
+}

@@ -20,42 +20,42 @@ export const COMPLICATION_POOLS = {
     human: {
         baseWeeks: 40,
         items: [
-            { type: 'Угроза выкидыша', severity: 'critical', chance: 8, weekMin: 4, weekMax: 12 },
-            { type: 'Сильный токсикоз', severity: 'warning', chance: 15, weekMin: 5, weekMax: 12 },
-            { type: 'Низкий прогестерон', severity: 'warning', chance: 10, weekMin: 4, weekMax: 10 },
-            { type: 'Гестационный диабет', severity: 'warning', chance: 10, weekMin: 14, weekMax: 26 },
-            { type: 'Анемия', severity: 'warning', chance: 12, weekMin: 14, weekMax: 26 },
-            { type: 'Предлежание плаценты', severity: 'critical', chance: 5, weekMin: 16, weekMax: 24 },
-            { type: 'Истмико-цервикальная недостаточность', severity: 'critical', chance: 4, weekMin: 14, weekMax: 22 },
-            { type: 'Преэклампсия', severity: 'critical', chance: 8, weekMin: 28, weekMax: 38 },
-            { type: 'Тазовое предлежание', severity: 'warning', chance: 12, weekMin: 30, weekMax: 37 },
-            { type: 'Маловодие', severity: 'warning', chance: 7, weekMin: 28, weekMax: 38 },
-            { type: 'Многоводие', severity: 'warning', chance: 5, weekMin: 28, weekMax: 38 },
-            { type: 'Преждевременные схватки', severity: 'critical', chance: 6, weekMin: 28, weekMax: 36 },
+            { type: 'Угроза выкидыша', typeEn: 'Threatened miscarriage', severity: 'critical', chance: 8, weekMin: 4, weekMax: 12 },
+            { type: 'Сильный токсикоз', typeEn: 'Severe morning sickness', severity: 'warning', chance: 15, weekMin: 5, weekMax: 12 },
+            { type: 'Низкий прогестерон', typeEn: 'Low progesterone', severity: 'warning', chance: 10, weekMin: 4, weekMax: 10 },
+            { type: 'Гестационный диабет', typeEn: 'Gestational diabetes', severity: 'warning', chance: 10, weekMin: 14, weekMax: 26 },
+            { type: 'Анемия', typeEn: 'Anaemia', severity: 'warning', chance: 12, weekMin: 14, weekMax: 26 },
+            { type: 'Предлежание плаценты', typeEn: 'Placenta praevia', severity: 'critical', chance: 5, weekMin: 16, weekMax: 24 },
+            { type: 'Истмико-цервикальная недостаточность', typeEn: 'Cervical insufficiency', severity: 'critical', chance: 4, weekMin: 14, weekMax: 22 },
+            { type: 'Преэклампсия', typeEn: 'Pre-eclampsia', severity: 'critical', chance: 8, weekMin: 28, weekMax: 38 },
+            { type: 'Тазовое предлежание', typeEn: 'Breech presentation', severity: 'warning', chance: 12, weekMin: 30, weekMax: 37 },
+            { type: 'Маловодие', typeEn: 'Low amniotic fluid', severity: 'warning', chance: 7, weekMin: 28, weekMax: 38 },
+            { type: 'Многоводие', typeEn: 'Excess amniotic fluid', severity: 'warning', chance: 5, weekMin: 28, weekMax: 38 },
+            { type: 'Преждевременные схватки', typeEn: 'Preterm contractions', severity: 'critical', chance: 6, weekMin: 28, weekMax: 36 },
         ],
     },
     // Тело носителя, пока яйца/икра формируются внутри (фаза до кладки)
     stagedBody: {
         baseWeeks: 20,
         items: [
-            { type: 'Угроза потерять кладку', severity: 'critical', chance: 8, weekMin: 2, weekMax: 8 },
-            { type: 'Истощение носителя', severity: 'warning', chance: 14, weekMin: 4, weekMax: 16 },
-            { type: 'Слабая скорлупа', severity: 'warning', chance: 12, weekMin: 8, weekMax: 18 },
-            { type: 'Нехватка минералов', severity: 'warning', chance: 11, weekMin: 6, weekMax: 16 },
-            { type: 'Застрявшее яйцо', severity: 'critical', chance: 6, weekMin: 16, weekMax: 20 },
-            { type: 'Неоплодотворённая часть кладки', severity: 'warning', chance: 9, weekMin: 10, weekMax: 20 },
+            { type: 'Угроза потерять кладку', typeEn: 'Threatened loss of the clutch', severity: 'critical', chance: 8, weekMin: 2, weekMax: 8 },
+            { type: 'Истощение носителя', typeEn: 'Carrier exhaustion', severity: 'warning', chance: 14, weekMin: 4, weekMax: 16 },
+            { type: 'Слабая скорлупа', typeEn: 'Weak shells', severity: 'warning', chance: 12, weekMin: 8, weekMax: 18 },
+            { type: 'Нехватка минералов', typeEn: 'Mineral deficiency', severity: 'warning', chance: 11, weekMin: 6, weekMax: 16 },
+            { type: 'Застрявшее яйцо', typeEn: 'Egg-binding', severity: 'critical', chance: 6, weekMin: 16, weekMax: 20 },
+            { type: 'Неоплодотворённая часть кладки', typeEn: 'Part of the clutch unfertilised', severity: 'warning', chance: 9, weekMin: 10, weekMax: 20 },
         ],
     },
     // Кладка в гнезде — своя специфика: температура, скорлупа, внешние угрозы
     clutch: {
         baseWeeks: 20,
         items: [
-            { type: 'Кладка остывает', severity: 'critical', chance: 9, weekMin: 1, weekMax: 18 },
-            { type: 'Трещина в скорлупе', severity: 'warning', chance: 11, weekMin: 2, weekMax: 16 },
-            { type: 'Плесень на кладке', severity: 'warning', chance: 8, weekMin: 4, weekMax: 16 },
-            { type: 'Одно яйцо замерло', severity: 'warning', chance: 12, weekMin: 5, weekMax: 18 },
-            { type: 'Перегрев гнезда', severity: 'critical', chance: 6, weekMin: 3, weekMax: 17 },
-            { type: 'Внимание хищников', severity: 'critical', chance: 5, weekMin: 2, weekMax: 19 },
+            { type: 'Кладка остывает', typeEn: 'The clutch is going cold', severity: 'critical', chance: 9, weekMin: 1, weekMax: 18 },
+            { type: 'Трещина в скорлупе', typeEn: 'Cracked shell', severity: 'warning', chance: 11, weekMin: 2, weekMax: 16 },
+            { type: 'Плесень на кладке', typeEn: 'Mould on the clutch', severity: 'warning', chance: 8, weekMin: 4, weekMax: 16 },
+            { type: 'Одно яйцо замерло', typeEn: 'One egg has stopped developing', severity: 'warning', chance: 12, weekMin: 5, weekMax: 18 },
+            { type: 'Перегрев гнезда', typeEn: 'The nest is overheating', severity: 'critical', chance: 6, weekMin: 3, weekMax: 17 },
+            { type: 'Внимание хищников', typeEn: 'Predators circling', severity: 'critical', chance: 5, weekMin: 2, weekMax: 19 },
         ],
     },
 };
@@ -81,6 +81,7 @@ export function rollPlannedComplications(poolKey, totalWeeks, rnd = Math.random)
         const hi = Math.max(lo, Math.min(total, Math.round(comp.weekMax * scale)));
         planned.push({
             type: comp.type,
+            typeEn: comp.typeEn,
             severity: comp.severity,
             revealWeek: lo + Math.floor(rnd() * (hi - lo + 1)),
             revealed: false,
@@ -100,7 +101,7 @@ export function revealComplications(holder, oldWeeks, newWeeks) {
         if (pc.revealed) continue;
         if (pc.revealWeek > oldWeeks && pc.revealWeek <= newWeeks) {
             pc.revealed = true;
-            const entry = { type: pc.type, severity: pc.severity, week: pc.revealWeek, resolved: false };
+            const entry = { type: pc.type, typeEn: pc.typeEn, severity: pc.severity, week: pc.revealWeek, resolved: false };
             holder.complications.push(entry);
             revealed.push(entry);
         }
@@ -190,10 +191,24 @@ export function seededRandom(seedStr) {
 // Портировано с fertility.js вдохновителя, числа один в один.
 // ═══════════════════════════════════════════
 
-export function postpartumState(daysSinceBirth, lactating = true) {
+// kind: 'birth' — обычные роды (полное восстановление тела)
+//       'lay'   — кладка/нерест: тело тоже вытолкнуло потомство, заживает
+//                 так же, но выкармливать пока некого — молодняк в скорлупе
+//       'hatch' — вылупление: для тела родителя это НЕ событие, потомство
+//                 вышло из яиц само. Никаких швов и кровотечения, только
+//                 выкармливание.
+export function postpartumState(daysSinceBirth, lactating = true, kind = 'birth') {
     const d = Math.max(0, parseInt(daysSinceBirth) || 0);
-    const healing = d < 42
-        ? (d < 10 ? 'швы свежие, больно' : d < 25 ? 'заживает' : 'почти зажило')
+    const physical = kind !== 'hatch';
+    const healing = (physical && d < 42)
+        ? (kind === 'lay'
+            ? (d < 10 ? 'клоака ещё саднит' : d < 25 ? 'заживает' : 'почти зажило')
+            : (d < 10 ? 'швы свежие, больно' : d < 25 ? 'заживает' : 'почти зажило'))
+        : null;
+    const healingEn = (physical && d < 42)
+        ? (kind === 'lay'
+            ? (d < 10 ? 'still raw from laying' : d < 25 ? 'healing' : 'almost healed')
+            : (d < 10 ? 'stitches fresh and painful' : d < 25 ? 'healing' : 'almost healed'))
         : null;
     // Лактационная аменорея: пока кормит, цикл не возвращается (грубо до ~6 мес)
     const cycleReturned = lactating ? d >= 180 : d >= 45;
@@ -202,10 +217,17 @@ export function postpartumState(daysSinceBirth, lactating = true) {
         healing,
         lactating: lactating && d < 730,
         cycleReturned,
-        lochia: d < 35,
+        lochia: physical && d < 35,
         // Пока цикл не вернулся — зачатие крайне маловероятно
         fertilityMul: cycleReturned ? 1 : (lactating ? 0.05 : 0.3),
-        label: d < 42 ? 'Ранний послеродовой период'
+        kind,
+        healingEn,
+        labelEn: !physical ? 'nursing the young'
+             : kind === 'lay' ? (d < 42 ? 'recovering after laying' : 'recovery complete')
+             : d < 42 ? 'early postpartum' : cycleReturned ? 'recovery complete' : 'nursing, cycle not back',
+        label: !physical ? 'Выкармливание потомства'
+             : kind === 'lay' ? (d < 42 ? 'Восстановление после кладки' : 'Восстановление завершено')
+             : d < 42 ? 'Ранний послеродовой период'
              : cycleReturned ? 'Восстановление завершено'
              : 'Кормление, цикл не вернулся',
     };

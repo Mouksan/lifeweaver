@@ -46,14 +46,25 @@ function universeContext(preset) {
         const character = getCharacterData(who);
         const name = who === 'char' ? '{{char}}' : '{{user}}';
         let phaseLine;
-        if (character.designation === 'omega') {
+        const ph = getCyclePhase(who);
+        if (ph && ph.key === 'paused') {
+            phaseLine = character.pregnancy?.isPregnant
+                ? 'cycle halted by the pregnancy — no heat or rut while carrying'
+                : 'cycle has not returned yet after the birth — no heat or rut';
+        } else if (character.suppressants && character.designation !== 'beta') {
+            phaseLine = character.designation === 'alpha'
+                ? 'ON SUPPRESSANTS — rut is chemically held off; scent muted, instincts dulled'
+                : 'ON SUPPRESSANTS — heat is chemically held off; scent muted, conception very unlikely while taking them';
+        } else if (character.designation === 'omega') {
             const phase = getHeatPhase(character.cycleDay, cfg);
-            phaseLine = phase.phase === 'heat' ? 'IN HEAT right now — fertility extremely high, feverish arousal, craving to be bred'
-                : phase.phase === 'preheat' ? 'pre-heat — restless, rising warmth, scent thickening'
+            phaseLine = phase.phase === 'heat' ? 'IN HEAT right now — fertility extremely high, feverish arousal, slick, craving to be knotted and bred'
+                : phase.phase === 'preheat' ? 'pre-heat — restless, nesting, rising warmth, scent thickening'
+                : phase.phase === 'postheat' ? 'coming down from heat — wrung out, sore, clingy; conception is effectively impossible right now'
                 : 'between heats — calm baseline';
         } else if (character.designation === 'alpha') {
             const phase = getRutPhase(character.cycleDay, cfg);
-            phaseLine = phase.phase === 'rut' ? 'IN RUT right now — aggression, scent-marking, relentless drive to breed'
+            phaseLine = phase.phase === 'rut' ? 'IN RUT right now — aggression, territorial, scent-marking, relentless drive to breed and knot'
+                : phase.phase === 'postrut' ? 'coming down from rut — drained, gentler, checking the mate for damage he may have done'
                 : 'not in rut — calm baseline';
         } else {
             phaseLine = 'no cycle';
@@ -63,8 +74,8 @@ function universeContext(preset) {
         // не было вовсе: у них энергия и настроение жили только в
         // менструальных фазах, а мы месячные выбросили.
         const phase = getCyclePhase(who);
-        if (phase && phase.key !== 'normal' && phase.key !== 'beta') {
-            const st = getCycleState(phase.key, phase.day, character.cycleDay);
+        if (phase && phase.key !== 'beta') {
+            const st = getCycleState(phase.key, phase.day, character.cycleDay, true);
             b += `  ${name} right now: ${st.body.join('; ')}. Mood ${st.mood}; libido ${st.libido}; energy ${st.energy}.\n`;
         }
     }
@@ -89,11 +100,11 @@ function characterStatusContext(who, preset) {
         const pct = Math.round((pregnancy.weeks / Math.max(1, stageMax)) * 100);
         const pool = bodyPoolFor(preset);
         const hidden = getSettings().hiddenPregnancy && !isPregnancyObvious(who);
-        const symptoms = getSymptoms(pool, pct, pregnancy.weeks, termsOf(preset));
+        const symptoms = getSymptoms(pool, pct, pregnancy.weeks, termsOf(preset), true);
         b += hidden
             ? `  Body right now (${name} does not connect these to a pregnancy yet): ${symptoms.join(', ')}.\n`
             : `  Body right now: ${symptoms.join(', ')}. Weave these in physically; do not list them.\n`;
-        b += `  Advisable at this stage: ${getRecommendation(pool, pct, termsOf(preset))}.\n`;
+        b += `  Advisable at this stage: ${getRecommendation(pool, pct, termsOf(preset), true)}.\n`;
         return b;
     }
     if (character.canCarry) {
@@ -118,8 +129,8 @@ function clutchesContext(preset) {
         const label = preset.gestationType === 'staged' ? preset.stages.second.label : 'incubation';
         b += `• ${c.offspringCount} ${preset.offspringLabel.toLowerCase()} laid by ${parent} — ${label.toLowerCase()} ${c.weeks}/${c.totalWeeks} weeks.\n`;
         const pct = Math.round((c.weeks / Math.max(1, c.totalWeeks)) * 100);
-        b += `  State of the clutch: ${getSymptoms('clutch', pct, c.weeks, termsOf(preset)).join(', ')}.\n`;
-        b += `  Advisable: ${getRecommendation('clutch', pct, termsOf(preset))}.\n`;
+        b += `  State of the clutch: ${getSymptoms('clutch', pct, c.weeks, termsOf(preset), true).join(', ')}.\n`;
+        b += `  Advisable: ${getRecommendation('clutch', pct, termsOf(preset), true)}.\n`;
     }
     b += `The carrier's body is free again — they are no longer pregnant and could conceive anew, though the nest and the eggs take most of their attention.\n`;
     return b;
@@ -177,7 +188,7 @@ function statusTagBlock(preset) {
     if (children.length > 0) {
         const names = children.slice(0, 6).map((c, i) => `"${c.name || `#${i + 1}`}"`).join(', ');
         if (!main) b += `<!-- [RP_STATUS:{}] -->\n`;
-        b += `Add a nested "children" object keyed by name (${names}), each with {"mood","sleep","feeding","diaper","care_note"} — what that child is actually doing in THIS scene. This overrides the tracker's age-based guesses.\n`;
+        b += `Add a nested "children" object keyed by name (${names}), each with {"mood","sleep","feeding","diaper","care_note","milestone"} — what that child is actually doing in THIS scene. This overrides the tracker's age-based guesses. Set "milestone" only when the child does something for the FIRST time in this reply (first smile, first word, first steps) — otherwise null.\n`;
     }
 
     b += `Never turn this tag into visible prose or a status block — it is an invisible comment.\n`;
@@ -213,7 +224,7 @@ function postpartumContext() {
         if (!pp) continue;
         const name = who === 'char' ? '{{char}}' : '{{user}}';
         b += `\n[POSTPARTUM — ${pp.days} days since the birth for ${name}]\n`;
-        if (pp.healing) b += `Recovery: ${pp.healing}. `;
+        if (pp.healing) b += `Recovery: ${pp.healingEn || pp.healing}. `;
         if (pp.lochia) b += `Post-birth bleeding still present. `;
         b += pp.lactating
             ? `${name} is nursing: engorgement, leaking, night feeds, milk letting down when the young cry.`
@@ -234,7 +245,7 @@ function healthContext(preset) {
     for (const h of holders) {
         const active = activeComplications(h.holder);
         if (!active.length) continue;
-        const bits = active.map(c => `${c.type}${c.severity === 'critical' ? ' (critical)' : ''}`).join(', ');
+        const bits = active.map(c => `${c.typeEn || c.type}${c.severity === 'critical' ? ' (critical)' : ''}`).join(', ');
         lines.push(`• ${h.label}: ${bits}.`);
     }
     if (!lines.length) return '';
@@ -366,7 +377,12 @@ function characterTagBlock(who, preset) {
 
         // Раскрытие пола — пока не раскрыт
         if (!pregnancy.sexRevealed) {
-            b += `If the sex of the offspring is definitively revealed THIS reply (scan, healer, magic, hatching), add: <!-- [SEX_REVEAL${tagSuffix}:M] --> — list one letter per offspring, M or F, comma-separated (${pregnancy.offspringCount} total).\n`;
+            // Условие намеренно жёсткое (как у вдохновителя): пол считается
+            // раскрытым, только если его УЗНАЛИ наверняка — не угадали,
+            // не почувствовали, не увидели во сне. В сеттингах без медицины
+            // это может остаться неизвестным до самых родов, и это нормально.
+            b += `If the sex of the offspring is DEFINITIVELY established THIS reply — by medical or equivalent in-world means (scan, examination by a healer, divination, a rite) and NOT by guessing, intuition, a dream or a wish — add: <!-- [SEX_REVEAL${tagSuffix}:M] --> listing one letter per offspring, M or F, comma-separated (${pregnancy.offspringCount} total).\n`;
+            b += `If this setting has no way to find out, leave it unknown — nobody in the story knows yet, and they should speak about the child accordingly.\n`;
         }
 
         if (preset.gestationType === 'staged') {
@@ -396,6 +412,9 @@ function characterTagBlock(who, preset) {
     } else if (character.canCarry) {
         b += `If in THIS reply semen is released INSIDE ${name} (internal release / creampie${preset.cycleSystem === 'abo' ? ' / knotting' : ''}) — real semen from a body, happening now — add: <!-- [CONCEPTION_CHECK${tagSuffix}] -->. NEVER for toys, fingers, oral, anal without internal release, a condom that held, or a scene that merely mentions sex.\n`;
         b += contraceptionLine(who, name, tagSuffix);
+        if (character.suppressants) {
+            b += `${name} is on suppressants — conception is very unlikely; only tag it if the story makes a point of the suppressants failing, being skipped or running out.\n`;
+        }
         if (!isTrying() && preset.cycleSystem !== 'abo') {
             const aid = getFertilityAid(who);
             if (aid) b += `${name} is under the effect of ${aid.label} — conception is near-certain on internal release while it lasts.\n`;

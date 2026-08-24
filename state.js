@@ -9,7 +9,7 @@
 // перезагрузку.
 
 import { extension_settings } from '../../../extensions.js';
-import { bucketFromHour } from './baby-care.js';
+import { bucketFromHour, childAgeDays, MILESTONES, milestoneDay } from './baby-care.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { rollPlannedComplications, revealComplications, bodyPoolFor, treatComplications, rollTest, seededRandom, activeComplications, inheritedLooksList, postpartumState } from './health.js';
 import { extensionName, defaultSettings, defaultChatData, defaultCharacterData, defaultPregnancyData, getPreset, getTotalWeeks, rollOffspringCount, CONTRACEPTION_TYPES, buildCustomPreset } from './config.js';
@@ -186,14 +186,22 @@ export function setCycleDay(who, day) {
     character.cycleDay = Math.max(1, Math.min(maxDay, parseInt(day) || 1));
 }
 
-// Отображаемое имя персонажа для UI
+// Отображаемое имя персонажа для UI. Своё имя (если задано) перебивает
+// то, что берётся из карточки/персоны — чисто визуально, в самой
+// Таверне персонаж остаётся под своим настоящим именем.
 export function carrierDisplayName(who) {
+    const override = getCharacterData(who).displayName;
+    if (override) return override;
     try {
         const ctx = SillyTavern.getContext();
         return who === 'char' ? (ctx.name2 || 'Партнёр') : (ctx.name1 || 'Ты');
     } catch (e) {
         return who === 'char' ? 'Партнёр' : 'Ты';
     }
+}
+
+export function setDisplayName(who, value) {
+    getCharacterData(who).displayName = String(value || '').trim();
 }
 
 // ── Беременность/вынашивание ──
@@ -381,7 +389,7 @@ export function completeBirth(who, traits = null) {
 
 // Добавить ребёнка, который УЖЕ существует в истории (не рождён в этом чате).
 // Без этого нельзя было начать игру с парой, у которой уже есть трёхлетка.
-export function addExistingChild({ name = '', sex = 'unknown', ageWeeks = 0, parentWho = 'user' } = {}) {
+export function addExistingChild({ name = '', sex = 'unknown', ageWeeks = 0, parentWho = 'user', birthDaysAgo = null } = {}) {
     const preset = getActivePreset();
     const child = {
         id: makeChildId(),
@@ -397,6 +405,16 @@ export function addExistingChild({ name = '', sex = 'unknown', ageWeeks = 0, par
         notes: '',
     };
     getChildren().push(child);
+
+    // Ребёнок из старого чата обычно означает, что носитель ЕЩЁ И рожал —
+    // а мы это событие пропустили, потому что роды прошли не в трекере.
+    // Поле необязательное: если не заполнено, ничего не трогаем — вдруг
+    // ребёнок вообще не от этой пары.
+    const days = parseInt(birthDaysAgo);
+    if (!isNaN(days) && days >= 0) {
+        const character = getCharacterData(child.parentWho);
+        character.postpartum = { startRpDay: (getChatData().rpDay || 0) - days, lactating: true };
+    }
     return child;
 }
 
@@ -412,8 +430,18 @@ export function getChildrenMissingTraits() {
 }
 
 // Дети без имени — если игрок нажал «Позже», имя может прийти из истории потом.
+// Модель любит писать в поле имени заглушку вместо пустой строки —
+// «(без имени пока)», «unnamed», прочерк. Считаем это отсутствием имени,
+// иначе трекер решит, что ребёнка уже назвали, и не спросит про него.
+const PLACEHOLDER_NAME_RE = /^[\s(\[]*(без\s*имени.*|не\s*назван.*|пока\s*никак.*|unnamed|no\s*name|tbd|n\/a|—|-|\?+)[\s)\]]*$/i;
+
+export function isPlaceholderName(name) {
+    const t = String(name || '').trim();
+    return !t || PLACEHOLDER_NAME_RE.test(t);
+}
+
 export function getChildrenMissingNames() {
-    return getChildren().filter(c => !(c.name || '').trim());
+    return getChildren().filter(c => isPlaceholderName(c.name));
 }
 
 // Дозаполнение от модели (тег CHILD_TRAITS): имя, характер, внешность.
@@ -442,7 +470,7 @@ export function applyChildTraits(list) {
 
         // Имя ставим только если его ещё нет — модель не должна переименовывать
         // ребёнка, которого игрок уже назвал сам.
-        if (entry.name && !(target.name || '').trim()) {
+        if (entry.name && !isPlaceholderName(entry.name) && isPlaceholderName(target.name)) {
             target.name = String(entry.name).trim();
             filled++;
         }
@@ -594,6 +622,8 @@ function advanceCycleDayByDays(who, days) {
     if (days <= 0) return;
     const character = getCharacterData(who);
     if (character.designation === 'beta') return;
+    // Пока вынашивает — цикл стоит, день не двигается
+    if (character.pregnancy?.isPregnant) return;
     const cfg = getCycleSettings();
     const maxDay = character.designation === 'alpha' ? cfg.rutCycleLength : cfg.heatCycleLength;
     const newDay = ((character.cycleDay - 1 + days) % maxDay) + 1;
@@ -628,9 +658,35 @@ function advanceChildrenAgeByDays(days) {
     const addWeeks = Math.floor(totalDays / 7);
     chat._ageDayRemainder = totalDays % 7;
     if (addWeeks > 0) {
-        for (const child of children) child.ageWeeks = (child.ageWeeks || 0) + addWeeks;
+        for (const child of children) {
+            const before = childAgeDays(child);
+            child.ageWeeks = (child.ageWeeks || 0) + addWeeks;
+            collectReachedMilestones(child, before, childAgeDays(child));
+        }
         autoArchiveGrownChildren();
     }
+}
+
+// Вехи, пройденные за этот отрезок. Складываем в очередь — уведомления
+// показывает автоматика, состояние о них знать не обязано.
+let _milestoneQueue = [];
+
+function collectReachedMilestones(child, oldDays, newDays) {
+    if (!Array.isArray(child.milestonesSeen)) child.milestonesSeen = [];
+    for (const m of MILESTONES) {
+        if (child.milestonesSeen.includes(m.key)) continue;
+        const day = milestoneDay(child, m);
+        if (day > oldDays && day <= newDays) {
+            child.milestonesSeen.push(m.key);
+            _milestoneQueue.push({ name: child.name || 'Малыш', label: m.label });
+        }
+    }
+}
+
+export function takeMilestoneEvents() {
+    const out = _milestoneQueue;
+    _milestoneQueue = [];
+    return out;
 }
 
 // Ребёнок, переросший порог, сам уходит в архив — чтобы инфоблок и промпт
@@ -737,30 +793,92 @@ export function getCyclePhase(who) {
     const preset = getActivePreset();
     if (preset.cycleSystem !== 'abo') return null;
 
+    // Беременность останавливает цикл полностью: течки и гона нет, пока
+    // носитель вынашивает. После родов цикл возвращается не сразу —
+    // ориентируемся на послеродовое состояние (при кормлении ~180 дней).
+    if (character.pregnancy?.isPregnant) {
+        return {
+            key: 'paused', day: character.cycleDay, cycleDay: character.cycleDay,
+            len: 0, daysLeft: null, kind: character.designation === 'alpha' ? 'rut' : 'heat',
+            label: 'Цикл остановлен',
+        };
+    }
+    const pp = getPostpartum(who);
+    if (pp && !pp.cycleReturned) {
+        return {
+            key: 'paused', day: character.cycleDay, cycleDay: character.cycleDay,
+            len: 0, daysLeft: null, kind: character.designation === 'alpha' ? 'rut' : 'heat',
+            label: pp.lactating ? 'Цикл не вернулся (кормление)' : 'Цикл не вернулся',
+        };
+    }
+
+    // Супрессанты глушат течку и гон: цикл продолжает идти, но фаза не
+    // наступает. Фертильность падает почти до нуля, но не до нуля совсем —
+    // подавители не абсолютны, и это как раз пространство для сюжета.
+    if (character.suppressants && character.designation !== 'beta') {
+        const isAlpha = character.designation === 'alpha';
+        return {
+            key: 'suppressed', day: character.cycleDay, cycleDay: character.cycleDay,
+            len: 0, daysLeft: null, kind: isAlpha ? 'rut' : 'heat',
+            label: isAlpha ? 'Гон подавлен' : 'Течка подавлена',
+        };
+    }
+
     const cfg = getCycleSettings();
     if (character.designation === 'omega') {
         const ph = getHeatPhase(character.cycleDay, cfg);
-        return { key: ph.phase, day: ph.day, len: ph.len, label: ph.label, daysLeft: ph.daysLeft, kind: 'heat' };
+        return { key: ph.phase, day: ph.dayInPhase ?? ph.day, cycleDay: ph.day, len: ph.len,
+                 label: ph.label, daysLeft: ph.daysLeft, kind: 'heat' };
     }
     if (character.designation === 'alpha') {
         const ph = getRutPhase(character.cycleDay, cfg);
-        return { key: ph.phase === 'rut' ? 'rut' : 'normal', day: ph.day, len: ph.len, label: ph.label, daysLeft: ph.daysLeft, kind: 'rut' };
+        return { key: ph.phase, day: ph.dayInPhase ?? ph.day, cycleDay: ph.day, len: ph.len,
+                 label: ph.label, daysLeft: ph.daysLeft, kind: 'rut' };
     }
     return { key: 'beta', day: 0, len: 0, label: 'Бета — цикла нет', daysLeft: null, kind: 'beta' };
 }
 
 // Аватар персонажа из SillyTavern: у карточки свой, у персоны свой.
 // Грузить руками не надо — ST их уже хранит.
+export function setCustomAvatar(who, value) {
+    getCharacterData(who).avatar = String(value || '').trim();
+}
+
+export function getCustomAvatar(who) {
+    return getCharacterData(who).avatar || '';
+}
+
 export function getAvatarUrl(who) {
+    // Своя аватарка перебивает ту, что стоит в Таверне. Хранится путём или
+    // ссылкой — и то и другое подставляется в src напрямую.
+    const custom = getCustomAvatar(who);
+    if (custom) return custom;
+
+    // Самый надёжный источник — то, что SillyTavern уже отрисовала в ленте:
+    // у сообщений аватарки проставлены корректно независимо от версии и
+    // способа хранения. Путь, собранный вручную, у персон не срабатывал.
+    try {
+        const sel = who === 'char' ? '.mes[is_user="false"]' : '.mes[is_user="true"]';
+        const nodes = document.querySelectorAll(`${sel} .avatar img`);
+        const img = nodes[nodes.length - 1];
+        if (img?.src) return img.src;
+    } catch (e) { /* ignore */ }
+
+    // Запасной путь через контекст
     try {
         const ctx = typeof SillyTavern?.getContext === 'function' ? SillyTavern.getContext() : null;
         if (!ctx) return null;
         if (who === 'char') {
             const ch = ctx.characters?.[ctx.characterId];
-            return ch?.avatar && ch.avatar !== 'none' ? `/characters/${encodeURIComponent(ch.avatar)}` : null;
+            if (ch?.avatar && ch.avatar !== 'none') return `/characters/${encodeURIComponent(ch.avatar)}`;
+            return null;
+        }
+        if (typeof ctx.getUserAvatar === 'function') {
+            const p = ctx.getUserAvatar(ctx.userAvatar || (typeof window !== 'undefined' ? window.user_avatar : null));
+            if (p) return p;
         }
         const ua = ctx.userAvatar || (typeof window !== 'undefined' ? window.user_avatar : null);
-        return ua ? `/User%20Avatars/${encodeURIComponent(ua)}` : null;
+        return ua ? `/User Avatars/${ua}` : null;
     } catch (e) {
         return null;
     }
@@ -834,6 +952,18 @@ function applyCarrierStatus(who, data) {
 
 const CHILD_FIELDS = ['mood', 'sleep', 'feeding', 'diaper', 'care_note', 'note'];
 
+// Веха, о которой сообщила модель («сегодня он впервые улыбнулся»).
+// Наши таблицы предсказывают вехи по возрасту, но событие в сцене важнее:
+// если модель написала — записываем как есть, даже если по таблице рано.
+function applyChildMilestone(child, text) {
+    const t = String(text || '').trim();
+    if (!t || /^(null|none|нет|—|-)$/i.test(t)) return false;
+    if (!Array.isArray(child.milestones)) child.milestones = [];
+    if (child.milestones.some(m => m.text === t)) return false;
+    child.milestones.push({ text: t.slice(0, 120), ageWeeks: child.ageWeeks || 0 });
+    return true;
+}
+
 function applyChildrenStatus(kids) {
     const chat = getChatData();
     if (!chat.childDynamic || typeof chat.childDynamic !== 'object') chat.childDynamic = {};
@@ -849,6 +979,8 @@ function applyChildrenStatus(kids) {
             if (!isNaN(idx) && idx >= 1 && idx <= children.length) target = children[idx - 1];
         }
         if (!target) continue;
+
+        if (data.milestone && applyChildMilestone(target, data.milestone)) applied++;
 
         const entry = chat.childDynamic[target.id] || {};
         for (const field of CHILD_FIELDS) {
@@ -875,6 +1007,10 @@ export function getLooks(who) {
     return character.looks;
 }
 
+export function setSuppressants(who, value) {
+    getCharacterData(who).suppressants = !!value;
+}
+
 export function setLooks(who, field, value) {
     const looks = getLooks(who);
     if (field === 'eyes' || field === 'hair') looks[field] = String(value || '').trim();
@@ -899,10 +1035,11 @@ export function mergeAppearance(inherited, fromModel) {
 // ═══════════════════════════════════════════
 
 // Запускается при родах/вылуплении. lactating — кормит ли носитель.
-export function startPostpartum(who, lactating = true) {
+export function startPostpartum(who, lactating = true, kind = 'birth') {
     getCharacterData(who).postpartum = {
         startRpDay: getChatData().rpDay || 0,
         lactating: !!lactating,
+        kind,
     };
 }
 
@@ -910,7 +1047,7 @@ export function getPostpartum(who) {
     const pp = getCharacterData(who).postpartum;
     if (!pp) return null;
     const days = Math.max(0, (getChatData().rpDay || 0) - (pp.startRpDay || 0));
-    const state = postpartumState(days, pp.lactating !== false);
+    const state = postpartumState(days, pp.lactating !== false, pp.kind || 'birth');
     // Через два года после родов отслеживать уже нечего
     if (days > 730) return null;
     return { ...state, lactatingFlag: pp.lactating !== false };
@@ -969,13 +1106,32 @@ export function doctorVisit(target) {
 }
 
 // Все носители/кладки, у которых есть нерешённые осложнения
+// Данные, созданные до появления системы здоровья (и кладки, перенесённые
+// миграцией), не проходили розыгрыш осложнений — у них _plannedComplications
+// просто нет. Разыгрываем лениво, при первом обращении: пустой массив значит
+// «разыграли, ничего не выпало», отсутствие — «никогда не разыгрывали».
+function ensureComplications(holder, poolKey, totalWeeks) {
+    if (!holder) return;
+    if (!Array.isArray(holder._plannedComplications)) {
+        holder._plannedComplications = rollPlannedComplications(poolKey, totalWeeks);
+        // Сразу раскрываем то, чья неделя уже прошла
+        revealComplications(holder, 0, holder.weeks || 0);
+    }
+    if (!Array.isArray(holder.complications)) holder.complications = [];
+    if (!holder.healthStatus) holder.healthStatus = 'normal';
+}
+
 export function getHealthHolders() {
+    const preset = getActivePreset();
     const list = [];
     for (const who of ['user', 'char']) {
         const p = getCharacterData(who).pregnancy;
-        if (p?.isPregnant) list.push({ kind: 'body', who, holder: p, label: carrierDisplayName(who) });
+        if (!p?.isPregnant) continue;
+        ensureComplications(p, bodyPoolFor(preset), currentStageMaxWeeks(preset, p));
+        list.push({ kind: 'body', who, holder: p, label: carrierDisplayName(who) });
     }
     for (const c of getClutches()) {
+        ensureComplications(c, 'clutch', c.totalWeeks);
         list.push({ kind: 'clutch', who: c.parentWho, holder: c, id: c.id, label: `Кладка от ${carrierDisplayName(c.parentWho)}` });
     }
     return list;
@@ -1178,6 +1334,9 @@ export function applyLayClutch(who) {
     });
 
     character.pregnancy = cloneDefault(defaultPregnancyData);
+    // Тело вытолкнуло кладку — заживление начинается здесь, а не при
+    // вылуплении. Молодняк ещё в скорлупе, выкармливать некого.
+    startPostpartum(who, false, 'lay');
     // Нерест — благополучный исход беременности: плашка о прошлой потере
     // и блоки анти-воскрешения к нему отношения не имеют.
     clearLastLoss(who);
@@ -1225,9 +1384,12 @@ export function hatchClutch(clutchId, traits = null) {
         created.push(child);
     }
     removeClutch(clutchId);
-    // Кладку не вынашивали в теле к моменту вылупления, но выкармливать
-    // потомство всё равно придётся — послеродовой период начинается здесь.
-    startPostpartum(clutch.parentWho, true);
+    // Для тела родителя вылупление — не событие: яйца треснули сами.
+    // Если он ещё восстанавливается после кладки, оставляем тот период и
+    // просто включаем кормление; иначе начинаем чистое выкармливание.
+    const ppNow = getCharacterData(clutch.parentWho).postpartum;
+    if (ppNow && ppNow.kind === 'lay') ppNow.lactating = true;
+    else startPostpartum(clutch.parentWho, true, 'hatch');
     clearLastLoss(clutch.parentWho);
     clearResurrectionBlocks(clutch.parentWho);
     return created;

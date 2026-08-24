@@ -25,13 +25,22 @@ function escapeHtml(str) {
 }
 
 // ─── Тост ───
+const MAX_TOASTS = 4;
+
 export function showNotification(html, type = 'info', timeout = 5000) {
     let $wrap = $('#lw_toasts');
     if (!$wrap.length) {
         $wrap = $('<div id="lw_toasts"></div>').appendTo('body');
     }
+    // Больше нескольких тостов разом экран не переживает: лишние старые
+    // снимаем сразу, иначе при большом скипе их набегает десяток.
+    const $existing = $wrap.children('.lw-toast');
+    if ($existing.length >= MAX_TOASTS) {
+        $existing.slice(0, $existing.length - MAX_TOASTS + 1).remove();
+    }
     const $toast = $(`<div class="lw-toast lw-toast-${type}">${html}</div>`);
     $wrap.append($toast);
+    try { document.dispatchEvent(new CustomEvent('lifeweaver:appearance')); } catch (e) { /* ignore */ }
     setTimeout(() => $toast.addClass('lw-toast-in'), 10);
     setTimeout(() => {
         $toast.removeClass('lw-toast-in');
@@ -96,6 +105,8 @@ export function showBirthDialog(children, preset, onConfirm) {
     `);
 
     $('body').append($overlay);
+    // Диалог создан после панели — оформление надо применить и к нему
+    try { document.dispatchEvent(new CustomEvent('lifeweaver:appearance')); } catch (e) { /* ignore */ }
     setTimeout(() => $overlay.find('.lw-bd-name').first().focus(), 100);
 
     const collect = () => {
@@ -150,6 +161,7 @@ export function showGraduationDialog(graduates, onConfirm) {
         </div>
     `);
     $('body').append($overlay);
+    try { document.dispatchEvent(new CustomEvent('lifeweaver:appearance')); } catch (e) { /* ignore */ }
 
     // Конфетти
     const colors = ['#ff9eb4', '#b478ff', '#82c8ff', '#ffd64a', '#82e878'];

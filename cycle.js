@@ -12,6 +12,15 @@ export function getHeatPhase(day, cfg) {
     if (d <= dur) {
         return { phase: 'heat', day: d, len, label: `Течка · день ${d} из ${dur}`, daysLeft: dur - d + 1 };
     }
+    // Пост-течка: тело откатывается после течки. Взято из старого расширения
+    // omega.js — там это отдельная фаза с НУЛЕВОЙ фертильностью, и это верно:
+    // организм истощён и зачатие в эти дни практически исключено.
+    const postDur = Math.max(2, Math.round(dur * 0.6));
+    if (d <= dur + postDur) {
+        const pd = d - dur;
+        return { phase: 'postheat', day: d, len, dayInPhase: pd,
+                 label: `После течки · ${pd} дн.`, daysLeft: dur + postDur - d + 1 };
+    }
     if (d > len - 2) {
         return { phase: 'preheat', day: d, len, label: `Предтечка · начнётся через ${len - d + 1} дн.`, daysLeft: len - d + 1 };
     }
@@ -26,6 +35,12 @@ export function getRutPhase(day, cfg) {
 
     if (d <= dur) {
         return { phase: 'rut', day: d, len, label: `Гон · день ${d} из ${dur}`, daysLeft: dur - d + 1 };
+    }
+    const postDur = Math.max(1, Math.round(dur * 0.6));
+    if (d <= dur + postDur) {
+        const pd = d - dur;
+        return { phase: 'postrut', day: d, len, dayInPhase: pd,
+                 label: `После гона · ${pd} дн.`, daysLeft: dur + postDur - d + 1 };
     }
     return { phase: 'normal', day: d, len, label: `Вне гона · до гона ${len - d + 1} дн.`, daysLeft: len - d + 1 };
 }

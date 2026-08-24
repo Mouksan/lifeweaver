@@ -27,7 +27,7 @@ import {
     advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
     applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex, getActivePreset,
     getCharacterData, isBlocked, applyChildTraits, setTimeOfDay, setRpTime, autoArchiveGrownChildren, applyStatus,
-    migrateLegacyClutch, getClutches, takeTest, doctorVisit, createUndoCheckpoint,
+    migrateLegacyClutch, getClutches, takeTest, doctorVisit, createUndoCheckpoint, takeMilestoneEvents,
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
@@ -130,10 +130,20 @@ export function markRegeneration() {
 
 // Вызывать после любого РУЧНОГО изменения состояния из интерфейса — иначе
 // свайп/реген откатит ручные правки к состоянию до последнего скана.
+// Снимок, лежащий сейчас в _preRegenSnapshot, снят ПЕРЕД применением
+// последнего сообщения — именно к нему надо возвращаться при свайпе.
+let _snapshotIsPreMessage = false;
+
 export function refreshRegenSnapshot() {
     try {
-        _preRegenSnapshot = snapshotOfChatData();
-        _snapshotChatId = getCurrentChatId();
+        // ВАЖНО: если снимок уже относится к состоянию ДО последнего
+        // сообщения, перезаписывать его нельзя. Иначе свайп восстановит
+        // состояние ПОСЛЕ сообщения и применит теги нового варианта поверх —
+        // недели складывались (28 → скип 5 → 33 → свайп → 38 вместо 33).
+        if (!_snapshotIsPreMessage) {
+            _preRegenSnapshot = snapshotOfChatData();
+            _snapshotChatId = getCurrentChatId();
+        }
         const ctx = getStContext();
         const len = ctx?.chat?.length ?? 0;
         if (len > 0) pushStateHistory(len);
@@ -147,6 +157,7 @@ export function clearRegenState() {
     _lastScannedPosition = null;
     _lastScannedHash = null;
     _lastScannedHashStripped = null;
+    _snapshotIsPreMessage = false;
 }
 
 function notifyStateChanged() {
@@ -164,6 +175,24 @@ function applyScanResult(result, debug = null) {
     if (result.daysPassed > 0) {
         advanceTimeByDays(result.daysPassed);
         log(`время +${result.daysPassed} дн.`);
+        // Вехи развития, пройденные за этот отрезок.
+        // При большом скипе их набирается десяток — по тосту на каждую
+        // подвешивало страницу, поэтому от трёх и больше сводим в одно.
+        const milestones = takeMilestoneEvents();
+        for (const ev of milestones) log(`веха: ${ev.name} — ${ev.label}`);
+        if (milestones.length >= 3) {
+            const byChild = {};
+            for (const ev of milestones) (byChild[ev.name] ||= []).push(ev.label);
+            const summary = Object.entries(byChild)
+                .map(([n, list]) => `${n}: ${list.length} ${list.length < 5 ? 'вехи' : 'вех'} (последняя — ${list[list.length - 1]})`)
+                .join('; ');
+            notify(`<i class="fa-solid fa-star"></i> Дети выросли — ${summary}`, 'success');
+        } else {
+            for (const ev of milestones) {
+                notify(`<i class="fa-solid fa-star"></i> ${ev.name}: ${ev.label}`, 'success');
+            }
+        }
+
         const grown = autoArchiveGrownChildren();
         if (grown.length) {
             log(`в архив по возрасту: ${grown.length}`);
@@ -404,10 +433,12 @@ function runScan(trigger = '?') {
                 console.log('[Lifeweaver] реген: состояние откачено к варианту "до"');
             }
             _preRegenSnapshot = null;
+            _snapshotIsPreMessage = false;
         }
 
         _preRegenSnapshot = snapshotOfChatData();
         _snapshotChatId = chatIdNow;
+        _snapshotIsPreMessage = true;
 
         _lastScannedPosition = positionId;
         _lastScannedHash = textHash;

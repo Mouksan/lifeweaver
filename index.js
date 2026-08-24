@@ -15,9 +15,9 @@ import {
     blockRemaining, clearResurrectionBlocks, getTimeOfDay, setTimeOfDay, getRpTime, setRpTime, getTimeForCare,
     isTrying, setTrying, monthsTrying, conceptionStruggle, getFertilityAid, setFertilityAid, clearFertilityAid,
     getClutches, setClutchWeeks, hatchClutch, removeClutch, migrateLegacyClutch,
-    getHealthHolders, doctorVisit, takeTest, getCurrentChatId, addExistingChild,
+    getHealthHolders, doctorVisit, takeTest, getCurrentChatId, addExistingChild, daysSinceConception,
     getLooks, setLooks, getPostpartum, setLactating, clearPostpartum, getDynamic, getChildDynamic,
-    getCyclePhase, getAvatarUrl,
+    getCyclePhase, getAvatarUrl, setSuppressants, isPregnancyObvious, getCustomAvatar, setCustomAvatar, setDisplayName,
     createUndoCheckpoint, undoLastChange, canUndo, lastUndoLabel,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
@@ -25,8 +25,10 @@ import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, getMilestoneP
 import { initAutomation, refreshRegenSnapshot, clearRegenState, getLastScanDebug } from './automation.js';
 import { showBirthDialog, showNotification } from './notifications.js';
 import { renderInfoblock } from './infoblock.js';
+import { PANEL_STYLES, COLOR_SCHEMES, DEFAULT_APPEARANCE, applyAppearanceEverywhere } from './appearance.js';
+import { readImageFile, uploadAvatar } from './avatars.js';
 import { scanFullHistory, estimateHistory } from './history-scan.js';
-import { activeComplications, getHealthInfo, TEST_LABELS, EYE_OPTIONS, HAIR_OPTIONS, bodyPoolFor } from './health.js';
+import { activeComplications, getHealthInfo, TEST_LABELS, EYE_OPTIONS, HAIR_OPTIONS, bodyPoolFor, testReliability } from './health.js';
 import { getSymptoms, getRecommendation, getCycleState } from './symptoms.js';
 import { updatePromptInjection, buildPrompt } from './prompts.js';
 
@@ -199,16 +201,16 @@ function avatarHtml(who, size = 'md') {
         : `<div class="lw-av lw-av-${size} lw-av-ph">${initial}</div>`;
 }
 
-function childAvatarHtml(child) {
+function childAvatarHtml(child, size = 'sm') {
     const icon = child.sex === 'M' ? 'fa-mars' : child.sex === 'F' ? 'fa-venus' : 'fa-baby';
     const tone = child.sex === 'M' ? 'blue' : child.sex === 'F' ? 'pink' : 'neutral';
-    return `<div class="lw-av lw-av-sm lw-av-ph lw-av-${tone}"><i class="fa-solid ${icon}"></i></div>`;
+    return `<div class="lw-av lw-av-${size} lw-av-ph lw-av-${tone}"><i class="fa-solid ${icon}"></i></div>`;
 }
 
 // Карточка-превью: клик уводит в свой раздел
 function tile(section, title, bodyHtml, opts = {}) {
     return `
-        <div class="lw-tile ${opts.wide ? 'lw-tile-wide' : ''}" data-goto="${section}" style="${opts.accent ? `--lw-card-accent:${opts.accent}` : ''}">
+        <div class="lw-tile ${opts.wide ? 'lw-tile-wide' : ''} ${opts.cls || ''}" data-goto="${section}" style="${opts.accent ? `--lw-card-accent:${opts.accent}` : ''}">
             <div class="lw-tile-head">
                 <span class="lw-tile-title">${title}</span>
                 <span class="lw-tile-go"><i class="fa-solid fa-arrow-right"></i></span>
@@ -222,31 +224,112 @@ function chip(label, value, tone = '') {
     return `<div class="lw-chip ${tone}"><span class="lw-chip-l">${label}</span><span class="lw-chip-v">${value}</span></div>`;
 }
 
-// ── Кто отслеживается ──
+// ── Кто отслеживается: только носитель, крупно ──
 function carrierTile(preset) {
-    const rows = ['user', 'char'].map(who => {
-        const c = getCharacterData(who);
-        const badge = preset.cycleSystem === 'abo'
-            ? `<span class="lw-tile-sub">${designationLabel(c.designation)}</span>` : '';
+    const carriers = ['user', 'char'].filter(w => getCharacterData(w).canCarry);
+
+    if (carriers.length === 0) {
         return `
-            <div class="lw-person">
-                ${avatarHtml(who)}
-                <div>
-                    <div class="lw-person-name">${carrierDisplayName(who)}</div>
-                    ${badge}
-                    <div class="lw-person-note">${c.canCarry ? 'может вынашивать' : 'не носитель'}</div>
+            <div class="lw-tile lw-tile-carrier" data-goto="pregnancy" style="--lw-card-accent:${preset.color}">
+                <div class="lw-tile-head">
+                    <span class="lw-tile-title">Кто отслеживается</span>
+                    <button type="button" class="lw-mini-btn lw-edit-carrier">Выбрать</button>
+                </div>
+                <div class="lw-carrier-empty">
+                    <div class="lw-av lw-av-lg lw-av-ph"><i class="fa-solid fa-user-plus"></i></div>
+                    <div class="lw-tile-sub">Носитель не выбран</div>
+                </div>
+            </div>
+        `;
+    }
+
+    const body = carriers.map(who => {
+        const c = getCharacterData(who);
+        const desig = preset.cycleSystem === 'abo' ? designationLabel(c.designation) : 'носитель';
+        return `
+            <div class="lw-carrier">
+                ${avatarHtml(who, 'lg')}
+                <div class="lw-carrier-info">
+                    <div class="lw-carrier-name">${carrierDisplayName(who)}</div>
+                    <div class="lw-carrier-desig">${desig}</div>
                 </div>
             </div>
         `;
     }).join('');
-    return tile('pregnancy', 'Кто отслеживается', `<div class="lw-persons">${rows}</div>`, { accent: preset.color });
+
+    return `
+        <div class="lw-tile lw-tile-carrier" data-goto="pregnancy" style="--lw-card-accent:${preset.color}">
+            <div class="lw-tile-head">
+                <span class="lw-tile-title">Кто отслеживается</span>
+                <button type="button" class="lw-mini-btn lw-edit-carrier">Редактировать</button>
+            </div>
+            ${body}
+        </div>
+    `;
+}
+
+// Диалог выбора носителя и роли
+function showCarrierDialog(preset) {
+    $('#lw_carrier_overlay').remove();
+    const rows = ['user', 'char'].map(who => {
+        const c = getCharacterData(who);
+        const desigSelect = preset.cycleSystem === 'abo' ? `
+            <select class="lw-select lw-cd-desig" data-who="${who}">
+                <option value="omega" ${c.designation === 'omega' ? 'selected' : ''}>Омега</option>
+                <option value="beta" ${c.designation === 'beta' ? 'selected' : ''}>Бета</option>
+                <option value="alpha" ${c.designation === 'alpha' ? 'selected' : ''}>Альфа</option>
+            </select>` : '';
+        return `
+            <div class="lw-cd-row-wrap">
+                <label class="lw-cd-row ${c.canCarry ? 'lw-cd-on' : ''}">
+                    <input type="checkbox" class="lw-cd-carry" data-who="${who}" ${c.canCarry ? 'checked' : ''}>
+                    ${avatarHtml(who, 'sm')}
+                    <span class="lw-cd-name">${carrierDisplayName(who)}</span>
+                    ${desigSelect}
+                </label>
+                <input type="text" class="lw-input lw-cd-displayname" data-who="${who}"
+                    placeholder="Своё имя (необязательно, только для интерфейса)" value="${c.displayName || ''}">
+            </div>
+        `;
+    }).join('');
+
+    const $ov = $(`
+        <div id="lw_carrier_overlay" class="lw-overlay lw-open">
+            <div class="lw-bd-panel" style="width:min(420px,92vw);">
+                <h2 class="lw-bd-title">Кто вынашивает</h2>
+                <p class="lw-bd-sub">Отметь тех, кто может забеременеть в этой истории${preset.cycleSystem === 'abo' ? ', и укажи роль' : ''}.</p>
+                <div class="lw-cd-list">${rows}</div>
+                <div class="lw-bd-actions"><button type="button" class="lw-btn" id="lw_cd_ok">Готово</button></div>
+            </div>
+        </div>
+    `);
+    $('body').append($ov);
+    applyAppearanceEverywhere(getAppearance());
+
+    const close = () => { $ov.remove(); renderContent(); };
+    $ov.find('.lw-cd-carry').on('change', function () {
+        setCanCarry($(this).data('who'), $(this).is(':checked'));
+        $(this).closest('.lw-cd-row').toggleClass('lw-cd-on', $(this).is(':checked'));
+        saveSettings();
+    });
+    $ov.find('.lw-cd-displayname').on('change', function () {
+        setDisplayName($(this).data('who'), $(this).val());
+        saveSettings();
+        // Имя используется по всей панели — перерисовываем диалог целиком
+        showCarrierDialog(preset);
+    });
+    $ov.find('.lw-cd-desig').on('change', function () {
+        setDesignation($(this).data('who'), $(this).val());
+        saveSettings();
+    });
+    $ov.find('#lw_cd_ok').on('click', close);
+    $ov.on('click', function (e) { if (e.target === this) close(); });
 }
 
 // ── Цикл ──
 function cycleTile(preset) {
     if (preset.cycleSystem !== 'abo') {
-        return tile('cycle', 'Цикл', `<div class="lw-tile-big">Нет цикла</div>
-            <div class="lw-tile-sub">В этой вселенной зачатие не завязано на течку</div>`);
+        return '';
     }
     const parts = ['user', 'char'].map(who => {
         const phase = getCyclePhase(who);
@@ -258,8 +341,8 @@ function cycleTile(preset) {
             <div class="lw-cyc ${hot ? 'lw-cyc-hot' : ''}">
                 <div class="lw-cyc-top">${carrierDisplayName(who)}</div>
                 <div class="lw-tile-big">${st.label}</div>
-                ${phase.len ? `<div class="lw-tile-sub">День ${phase.day} / ${phase.len}</div>
-                    <div class="lw-bar"><div class="lw-bar-fill" style="width:${(phase.day / phase.len) * 100}%"></div></div>` : ''}
+                ${phase.len ? `<div class="lw-tile-sub">День ${phase.cycleDay ?? phase.day} / ${phase.len}</div>
+                    <div class="lw-bar"><div class="lw-bar-fill" style="width:${((phase.cycleDay ?? phase.day) / phase.len) * 100}%"></div></div>` : ''}
                 ${phase.daysLeft !== null && !hot ? `<div class="lw-tile-sub">${phase.kind === 'rut' ? 'до гона' : 'до течки'} ${phase.daysLeft} дн.</div>` : ''}
             </div>
         `;
@@ -267,32 +350,71 @@ function cycleTile(preset) {
     return tile('cycle', 'Цикл', `<div class="lw-cycs">${parts}</div>`, { accent: preset.color });
 }
 
-// ── Краткое состояние: живое от модели, иначе — по фазе цикла ──
+// ── Краткое состояние: только носитель, и не «всё нормально», а что с телом ──
 function stateTile(preset) {
-    const chips = [];
-    for (const who of ['user', 'char']) {
-        const c = getCharacterData(who);
-        const dyn = getDynamic(who);
-        const name = carrierDisplayName(who);
+    // Кого показываем: носителей. Если никто не отмечен — того, кого вообще
+    // имеет смысл отслеживать в этой вселенной.
+    let subjects = ['user', 'char'].filter(w => getCharacterData(w).canCarry);
+    if (subjects.length === 0 && preset.cycleSystem === 'abo') {
+        subjects = ['user', 'char'].filter(w => getCharacterData(w).designation !== 'beta');
+    }
+    if (subjects.length === 0) return '';
 
-        if (c.pregnancy?.isPregnant) {
-            const info = getHealthInfo(c.pregnancy.healthStatus || 'normal');
-            chips.push(chip(`${name} · здоровье`, info.text, `lw-chip-${info.tone}`));
-            if (dyn.mood) chips.push(chip(`${name} · настроение`, dyn.mood));
-            if (dyn.libido) chips.push(chip(`${name} · либидо`, dyn.libido));
-            if (dyn.physical) chips.push(chip(`${name} · тело`, dyn.physical));
+    const blocks = subjects.map(who => {
+        const c = getCharacterData(who);
+        const p = c.pregnancy;
+        const dyn = getDynamic(who);
+        let title = '';
+        let tone = '';
+        let lines = [];
+        let chips = [];
+
+        if (p?.isPregnant) {
+            const max = currentStageMaxWeeks(preset, p);
+            const hidden = getSettings().hiddenPregnancy && !isPregnancyObvious(who);
+            const pct = Math.round((p.weeks / Math.max(1, max)) * 100);
+            title = hidden ? 'Что-то не так' : `${preset.gestationType === 'staged' ? preset.stages.first.label : 'Беременность'} · ${p.weeks} нед.`;
+            // Живое от модели важнее табличных догадок
+            lines = dyn.physical ? [dyn.physical] : getSymptoms(bodyPoolFor(preset), pct, p.weeks, termsOf(preset)).slice(0, 3);
+            if (dyn.mood) chips.push(['настроение', dyn.mood]);
+            if (dyn.libido) chips.push(['либидо', dyn.libido]);
+            const info = getHealthInfo(p.healthStatus || 'normal');
+            if (p.healthStatus && p.healthStatus !== 'normal') { tone = info.tone; chips.push(['здоровье', info.text]); }
         } else {
             const phase = getCyclePhase(who);
-            if (!phase || phase.key === 'beta') continue;
-            const st = getCycleState(phase.key, phase.day, c.cycleDay);
-            const hot = phase.key === 'heat' || phase.key === 'rut';
-            chips.push(chip(`${name} · настроение`, st.mood, hot ? 'lw-chip-warning' : ''));
-            chips.push(chip(`${name} · либидо`, st.libido, hot ? 'lw-chip-warning' : ''));
-            chips.push(chip(`${name} · энергия`, st.energy));
+            if (!phase || phase.key === 'beta') {
+                title = 'Спокойно';
+                lines = ['цикла нет, состояние ровное'];
+            } else {
+                const st = getCycleState(phase.key, phase.day, c.cycleDay);
+                const hot = ['heat', 'rut', 'postheat', 'postrut', 'suppressed'].includes(phase.key);
+                title = phase.key === 'suppressed'
+                    ? phase.label
+                    : phase.key === 'normal'
+                    ? (phase.kind === 'rut' ? `Вне гона · ещё ${phase.daysLeft} дн.` : `До течки ${phase.daysLeft} дн.`)
+                    : `${st.label}${phase.key === 'heat' || phase.key === 'rut' ? ` · день ${phase.day}` : ''}`;
+                tone = hot ? 'warning' : '';
+                lines = st.body;
+                if (hot) { chips.push(['настроение', st.mood]); chips.push(['либидо', st.libido]); }
+            }
         }
-    }
-    if (!chips.length) chips.push(chip('Состояние', 'ничего не отслеживается'));
-    return tile('health', 'Краткое состояние', `<div class="lw-chips">${chips.join('')}</div>`, { accent: preset.color });
+
+        return `
+            <div class="lw-state ${tone ? `lw-state-${tone}` : ''}">
+                <div class="lw-state-head">
+                    ${avatarHtml(who, 'sm')}
+                    <span class="lw-state-who">${carrierDisplayName(who)}</span>
+                </div>
+                <div class="lw-state-title">${title}</div>
+                <ul class="lw-state-lines">${lines.map(l => `<li>${l}</li>`).join('')}</ul>
+                ${chips.length ? `<div class="lw-state-chips">${chips.map(([k, v]) =>
+                    `<span class="lw-state-chip"><b>${k}</b> ${v}</span>`).join('')}</div>` : ''}
+                ${dyn.note ? `<div class="lw-state-note">${dyn.note}</div>` : ''}
+            </div>
+        `;
+    }).join('');
+
+    return tile('health', 'Состояние', blocks, { accent: preset.color });
 }
 
 // ── Беременность и кладки ──
@@ -326,9 +448,9 @@ function pregnancyTile(preset) {
             </div>
         `);
     }
-    if (!blocks.length) {
-        blocks.push(`<div class="lw-tile-sub">Сейчас никто не вынашивает</div>`);
-    }
+    // Пустую плитку не показываем совсем: раздел никуда не делся, он есть
+    // в боковом меню, а на обзоре она только рвала сетку.
+    if (!blocks.length) return '';
     return tile('pregnancy', 'Беременность', `<div class="lw-pregs">${blocks.join('')}</div>`,
         { wide: blocks.length > 2, accent: preset.color });
 }
@@ -337,7 +459,7 @@ function pregnancyTile(preset) {
 function childrenTile(preset) {
     const children = getChildren();
     if (!children.length) {
-        return tile('child', 'Дети', `<div class="lw-tile-sub">Пока никого</div>`, { accent: preset.color });
+        return '';
     }
     const rows = children.slice(0, 4).map(child => {
         const days = childAgeDays(child);
@@ -372,7 +494,26 @@ function treeTile(preset) {
         <div class="lw-tt-row">${parents}</div>
         ${kidNodes ? `<div class="lw-tt-line"></div><div class="lw-tt-row">${kidNodes}</div>` : ''}
         ${kids.length > 5 ? `<div class="lw-tile-sub">…и ещё ${kids.length - 5}</div>` : ''}
-    `, { wide: kids.length > 2, accent: preset.color });
+    `, { wide: kids.length > 4, cls: 'lw-tile-tree', accent: preset.color });
+}
+
+// ── Послеродовое ──
+function postpartumTile(preset) {
+    const blocks = ['user', 'char'].map(who => {
+        const pp = getPostpartum(who);
+        if (!pp || pp.days > 60) return '';
+        return `
+            <div class="lw-preg">
+                <div class="lw-preg-top">${avatarHtml(who, 'sm')}<span>${carrierDisplayName(who)}</span></div>
+                <div class="lw-tile-big">${pp.days} дн.</div>
+                <div class="lw-tile-sub">${pp.label}</div>
+                ${pp.healing ? `<div class="lw-tile-sub">${pp.healing}</div>` : ''}
+                ${pp.lactating ? `<div class="lw-tile-sub">кормит</div>` : ''}
+            </div>
+        `;
+    }).filter(Boolean);
+    if (!blocks.length) return '';
+    return tile('health', 'После родов', `<div class="lw-pregs">${blocks.join('')}</div>`, { accent: preset.color });
 }
 
 function renderOverviewSection(preset) {
@@ -382,6 +523,7 @@ function renderOverviewSection(preset) {
             ${cycleTile(preset)}
             ${stateTile(preset)}
             ${pregnancyTile(preset)}
+            ${postpartumTile(preset)}
             ${childrenTile(preset)}
             ${treeTile(preset)}
         </div>
@@ -390,6 +532,11 @@ function renderOverviewSection(preset) {
             <span class="lw-dim">${summarizePreset(preset)}</span>
         </div>
     `);
+
+    $('.lw-edit-carrier').on('click', function (e) {
+        e.stopPropagation();
+        showCarrierDialog(preset);
+    });
 
     // Клик по карточке уводит в её раздел
     $('.lw-tile').on('click', function () {
@@ -403,20 +550,44 @@ function renderOverviewSection(preset) {
 
 // ─── Раздел "Цикл" ───
 function renderCycleSection(preset) {
+    // Во вселенных без цикла раздел не пустеет совсем: контрацепция нужна
+    // и здесь, а больше ей места нет.
     if (preset.cycleSystem !== 'abo') {
+        const cards = ['user', 'char'].map(who => `
+            <div class="lw-card" style="--lw-card-accent: ${preset.color}">
+                <div class="lw-card-label">${carrierDisplayName(who)}</div>
+                <div class="lw-day-control">
+                    <label>Контрацепция:</label>
+                    <select class="lw-select lw-contraception-select" data-who="${who}">
+                        ${Object.values(CONTRACEPTION_TYPES).map(c => `
+                            <option value="${c.id}" ${(getCharacterData(who).contraception || 'none') === c.id ? 'selected' : ''}>${c.label}${c.chance ? ` (${c.chance}%)` : ''}</option>
+                        `).join('')}
+                    </select>
+                </div>
+            </div>
+        `).join('');
         $('#lw_content').html(`
             <h2 class="lw-content-title">Цикл</h2>
-            <div class="lw-empty">
+            <div class="lw-empty" style="padding: 26px 20px;">
                 <i class="fa-solid fa-moon"></i>
-                <p>В этой вселенной нет течки/гона — зачатие не завязано на цикл.</p>
+                <p>В этой вселенной нет течки и гона — зачатие не завязано на цикл.</p>
             </div>
+            <h3 class="lw-content-subtitle">Контрацепция</h3>
+            <p class="lw-placeholder-note">Кубик не бросается: процент уходит модели, и она решает по сюжету, подвела защита или нет.</p>
+            <div class="lw-cycle-grid">${cards}</div>
         `);
+        $('.lw-contraception-select').on('change', function () {
+            setContraception($(this).data('who'), $(this).val());
+            saveSettings();
+            renderContent();
+        });
         return;
     }
 
     const cfg = getCycleSettings();
     $('#lw_content').html(`
         <h2 class="lw-content-title">Цикл</h2>
+        <p class="lw-placeholder-note">Супрессанты глушат течку или гон, контрацепция влияет на зачатие. Кубик не бросается: проценты уходят модели, и она решает по сюжету, подвело ли средство.</p>
         <div class="lw-cycle-grid" id="lw_cycle_grid"></div>
     `);
     const $grid = $('#lw_cycle_grid');
@@ -445,7 +616,45 @@ function renderCarrierCycleCard(who, preset, cfg) {
             <label>День цикла:</label>
             <input type="number" class="lw-input lw-day-input" data-who="${who}" min="1" value="${data.cycleDay}">
         </div>
+        <label class="lw-checkbox-row">
+            <input type="checkbox" class="lw-suppressants" data-who="${who}" ${data.suppressants ? 'checked' : ''}>
+            Супрессанты — глушат ${data.designation === 'alpha' ? 'гон' : 'течку'}
+        </label>
     ` : '';
+
+    // Контрацепция живёт здесь же: и она, и супрессанты — намеренное
+    // вмешательство в фертильность, логично держать их вместе.
+    const contraceptionHtml = `
+        <div class="lw-day-control">
+            <label>Контрацепция:</label>
+            <select class="lw-select lw-contraception-select" data-who="${who}">
+                ${Object.values(CONTRACEPTION_TYPES).map(c => `
+                    <option value="${c.id}" ${(data.contraception || 'none') === c.id ? 'selected' : ''}>${c.label}${c.chance ? ` (${c.chance}%)` : ''}</option>
+                `).join('')}
+            </select>
+        </div>
+    `;
+
+    // Телесное состояние фазы — оно уходило в промпт, но в интерфейсе его
+    // не было видно нигде. Теперь видно здесь и на обзоре.
+    const cyc = getCyclePhase(who);
+    let stateHtml = '';
+    if (cyc) {
+        const st = getCycleState(cyc.key, cyc.day, data.cycleDay);
+        const hot = cyc.key === 'heat' || cyc.key === 'rut';
+        stateHtml = `
+            <div class="lw-symptoms">
+                <div class="lw-card-label">Состояние тела</div>
+                ${st.body.map(s => `<div>• ${s}</div>`).join('')}
+                ${(hot || cyc.key === 'preheat') ? `
+                    <div class="lw-state-chips">
+                        <div class="lw-sc"><span class="lw-sc-l">настроение</span><span>${st.mood}</span></div>
+                        <div class="lw-sc"><span class="lw-sc-l">либидо</span><span>${st.libido}</span></div>
+                        <div class="lw-sc"><span class="lw-sc-l">энергия</span><span>${st.energy}</span></div>
+                    </div>` : ''}
+            </div>
+        `;
+    }
 
     return `
         <div class="lw-card lw-cycle-card" style="--lw-card-accent: ${preset.color}">
@@ -457,6 +666,8 @@ function renderCarrierCycleCard(who, preset, cfg) {
             </select>
             ${phaseHtml}
             ${dayControlHtml}
+            ${contraceptionHtml}
+            ${stateHtml}
         </div>
     `;
 }
@@ -465,6 +676,16 @@ function bindCycleCardEvents() {
     $('.lw-designation-select').on('change', function () {
         const who = $(this).data('who');
         setDesignation(who, $(this).val());
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-contraception-select').on('change', function () {
+        setContraception($(this).data('who'), $(this).val());
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-suppressants').on('change', function () {
+        setSuppressants($(this).data('who'), $(this).is(':checked'));
         saveSettings();
         renderContent();
     });
@@ -550,7 +771,7 @@ function renderClutchCard(clutch, preset) {
                 ${getSymptoms('clutch', Math.round((clutch.weeks / Math.max(1, clutch.totalWeeks)) * 100), clutch.weeks, termsOf(originPreset)).map(s => `<div>• ${s}</div>`).join('')}
                 <div class="lw-rec"><i class="fa-solid fa-lightbulb"></i> ${getRecommendation('clutch', Math.round((clutch.weeks / Math.max(1, clutch.totalWeeks)) * 100), termsOf(originPreset))}</div>
             </div>
-            <div class="lw-child-actions">
+            <div class="lw-actions-split">
                 <button type="button" class="lw-btn lw-hatch-clutch" data-id="${clutch.id}" ${ready ? '' : 'disabled'}>
                     Вылупление — записать ${clutch.offspringCount}
                 </button>
@@ -563,19 +784,36 @@ function renderClutchCard(clutch, preset) {
 function renderPregnancySection(preset) {
     const settings = getSettings();
     const clutches = getClutches();
+    const hidden = getSettings().hiddenPregnancy;
     $('#lw_content').html(`
         <h2 class="lw-content-title">Беременность</h2>
+        <label class="lw-checkbox-row lw-hidden-toggle">
+            <input type="checkbox" id="lw_hidden_pregnancy" ${hidden ? 'checked' : ''}>
+            Скрытая беременность — носитель не знает о зачатии, пока не узнает по сюжету
+            <span class="lw-dim">(становится очевидной с ${getSettings().obviousAtWeek} недели или после кладки)</span>
+        </label>
         ${renderTryingPanel(preset)}
         <div class="lw-cycle-grid" id="lw_pregnancy_grid"></div>
         ${clutches.length ? `<h3 class="lw-content-subtitle">Инкубация</h3><div class="lw-cycle-grid" id="lw_clutch_grid"></div>` : ''}
     `);
+    // Только носители: кто вынашивает, выбирается в «Обзоре». Альфа здесь
+    // не при делах, а галка «может забеременеть» дублировала тот же выбор.
     const $grid = $('#lw_pregnancy_grid');
-    $grid.append(renderPregnancyCard('user', preset, settings));
-    $grid.append(renderPregnancyCard('char', preset, settings));
+    const carriers = ['user', 'char'].filter(w => getCharacterData(w).canCarry);
+    if (carriers.length === 0) {
+        $grid.append(`<div class="lw-empty"><i class="fa-solid fa-user-plus"></i>
+            <p>Носитель не выбран — назначь его в разделе «Обзор», карточка «Кто отслеживается».</p></div>`);
+    }
+    for (const who of carriers) $grid.append(renderPregnancyCard(who, preset, settings));
     if (clutches.length) {
         const $cg = $('#lw_clutch_grid');
         for (const c of clutches) $cg.append(renderClutchCard(c, preset));
     }
+    $('#lw_hidden_pregnancy').on('change', function () {
+        setHiddenPregnancy($(this).is(':checked'));
+        saveSettings();
+        renderContent();
+    });
     bindPregnancyEvents();
 }
 
@@ -592,9 +830,7 @@ function renderPregnancyCard(who, preset, settings) {
     const totalWeeks = getTotalWeeks(preset, settings.pregnancyDuration);
 
     let bodyHtml;
-    if (!data.canCarry) {
-        bodyHtml = `<p class="lw-dim-note">Не отмечен(а) как носитель в этой истории.</p>`;
-    } else if (!data.pregnancy?.isPregnant) {
+    if (!data.pregnancy?.isPregnant) {
         // Если у носителя есть живая кладка — плашка о прошлой потере только
         // путает: рядом же лежит вполне здоровое потомство.
         const hasClutch = getClutches().some(c => c.parentWho === who);
@@ -607,7 +843,7 @@ function renderPregnancyCard(who, preset, settings) {
                 <button type="button" class="lw-btn lw-btn-muted lw-clear-loss" data-who="${who}">Скрыть</button>
             </div>
         ` : '';
-        bodyHtml = lossHtml + `<button type="button" class="lw-btn lw-start-pregnancy" data-who="${who}">Начать беременность (тест)</button>`;
+        bodyHtml = lossHtml + `<button type="button" class="lw-btn lw-start-pregnancy" data-who="${who}">Начать беременность</button>`;
     } else {
         bodyHtml = renderPregnancyProgress(data.pregnancy, preset, totalWeeks, who);
     }
@@ -615,10 +851,6 @@ function renderPregnancyCard(who, preset, settings) {
     return `
         <div class="lw-card lw-pregnancy-card" style="--lw-card-accent: ${preset.color}">
             <div class="lw-card-label">${name}</div>
-            <label class="lw-checkbox-row">
-                <input type="checkbox" class="lw-can-carry" data-who="${who}" ${data.canCarry ? 'checked' : ''}>
-                Может забеременеть в этой истории
-            </label>
             <div class="lw-pregnancy-body">${bodyHtml}</div>
         </div>
     `;
@@ -657,7 +889,7 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
         actionsHtml = isStageFullTerm ? `
             <button type="button" class="lw-btn lw-lay-clutch" data-who="${who}">${layVerb} — отложить ${pregnancy.offspringCount}</button>
             <button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить</button>
-        ` : `<button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить (тест)</button>`;
+        ` : `<button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить</button>`;
     } else if (isStageFullTerm) {
         const birthVerb = preset.gestationType === 'staged' ? 'Вылупление' : 'Роды';
         actionsHtml = `
@@ -665,7 +897,7 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
             <button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить без родов</button>
         `;
     } else {
-        actionsHtml = `<button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить (тест)</button>`;
+        actionsHtml = `<button type="button" class="lw-btn lw-btn-muted lw-end-pregnancy" data-who="${who}">Сбросить</button>`;
     }
 
     // Прерывание доступно на любом сроке и любой стадии
@@ -709,9 +941,12 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
     `;
 
     // Пол потомства: скрыт до раскрытия (тег SEX_REVEAL или кнопка)
+    // Пол раскрывается ТОЛЬКО по сюжету (тег SEX_REVEAL): УЗИ, целитель,
+    // магия — либо само вылупление. Кнопки «подсмотреть» намеренно нет:
+    // удивляемся вместе с персонажами.
     const sexHtml = pregnancy.sexRevealed
         ? `<div class="lw-sex-row">${(pregnancy.offspringSex || []).map(s => `<span class="lw-badge">${sexLabel(s)}</span>`).join('')}</div>`
-        : `<button type="button" class="lw-btn lw-btn-muted lw-reveal-sex" data-who="${who}">Узнать пол</button>`;
+        : `<div class="lw-dim" style="font-size:.74rem;">Пол неизвестен — узнается по сюжету${preset.gestationType === 'staged' ? ' или при вылуплении' : ''}.</div>`;
 
     // Блок анти-воскрешения виден явно — раньше он молча отклонял роды
     const birthBlock = blockRemaining('birth', who);
@@ -742,12 +977,6 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
 }
 
 function bindPregnancyEvents() {
-    $('.lw-can-carry').on('change', function () {
-        const who = $(this).data('who');
-        setCanCarry(who, $(this).is(':checked'));
-        saveSettings();
-        renderContent();
-    });
     $('.lw-start-pregnancy').on('click', function () {
         const who = $(this).data('who');
         startPregnancy(who);
@@ -831,11 +1060,6 @@ function bindPregnancyEvents() {
         saveSettings();
         renderContent();
     });
-    $('.lw-reveal-sex').on('click', function () {
-        revealOffspringSex($(this).data('who'));
-        saveSettings();
-        renderContent();
-    });
     $('.lw-miscarriage').on('click', function () {
         createUndoCheckpoint(`Потеря беременности: ${carrierDisplayName($(this).data('who'))}`);
         applyMiscarriage($(this).data('who'));
@@ -909,6 +1133,11 @@ function renderChildSection(preset) {
                 </select>
             </label>
         </div>
+        <label style="display:block;font-size:.78rem;color:var(--lw-text-dim);margin-bottom:10px;">
+            Носитель рожал N дней назад <span class="lw-dim">(необязательно — заполни, если роды тоже были не в этом трекере)</span>
+            <input type="number" class="lw-input" id="lw_add_child_pp" min="0" placeholder="оставь пустым, если не относится"
+                style="width:160px;margin-top:4px;">
+        </label>
         <button type="button" class="lw-btn" id="lw_add_child_btn"><i class="fa-solid fa-plus"></i> Добавить</button>
     `);
 
@@ -916,11 +1145,13 @@ function renderChildSection(preset) {
         const n = Math.max(0, parseInt($('#lw_add_child_age').val()) || 0);
         const unit = $('#lw_add_child_unit').val();
         const weeks = unit === 'y' ? n * 52 : unit === 'm' ? Math.round(n * 4.345) : n;
+        const ppRaw = $('#lw_add_child_pp').val();
         addExistingChild({
             name: $('#lw_add_child_name').val(),
             sex: $('#lw_add_child_sex').val(),
             ageWeeks: weeks,
             parentWho: $('#lw_add_child_parent').val(),
+            birthDaysAgo: ppRaw === '' ? null : parseInt(ppRaw),
         });
         saveSettings();
         renderContent();
@@ -1021,6 +1252,11 @@ function renderChildCard(child, preset) {
             ${childDynHtml}
             ${traitsHtml}
             <div class="lw-child-care">${careBits.filter(Boolean).map(b => `<div>• ${b}</div>`).join('')}</div>
+            ${Array.isArray(child.milestones) && child.milestones.length ? `
+                <div class="lw-symptoms">
+                    <div class="lw-card-label">Впервые</div>
+                    ${child.milestones.slice(-4).map(m => `<div>• ${m.text} <span class="lw-dim">(${formatAge(m.ageWeeks * 7)})</span></div>`).join('')}
+                </div>` : ''}
             <div class="lw-child-milestones">
                 <div class="lw-stage-label">Вехи: ${progress.reached.length}/${progress.total}${progress.next ? ` · далее: ${progress.next.label}` : ''}</div>
                 <div class="lw-bar"><div class="lw-bar-fill" style="width:${(progress.reached.length / progress.total) * 100}%"></div></div>
@@ -1030,9 +1266,9 @@ function renderChildCard(child, preset) {
                 <input type="number" class="lw-input lw-child-age" data-id="${child.id}" min="0" value="${child.ageWeeks || 0}">
             </div>
             <textarea class="lw-input lw-child-notes" data-id="${child.id}" rows="2" placeholder="Заметки...">${child.notes || ''}</textarea>
-            <div class="lw-child-actions">
+            <div class="lw-actions-split">
                 <button type="button" class="lw-btn lw-btn-muted lw-archive-child" data-id="${child.id}">Архивировать (вырос)</button>
-                <button type="button" class="lw-btn lw-btn-muted lw-delete-child" data-id="${child.id}">Удалить</button>
+                <button type="button" class="lw-btn lw-btn-danger lw-delete-child" data-id="${child.id}">Удалить</button>
             </div>
         </div>
     `;
@@ -1096,12 +1332,13 @@ function renderParentNode(who, preset) {
     const data = getCharacterData(who);
     const name = carrierDisplayName(who);
     const tag = preset.cycleSystem === 'abo' ? `<div class="lw-tree-tag">${designationLabel(data.designation)}</div>` : '';
-    const carrierMark = data.canCarry ? `<div class="lw-tree-sub">Может выносить</div>` : '';
+    // Пометку «может выносить» не дублируем: это состояние видно в «Обзоре»
+    // и в «Беременности», а древо — про родственные связи.
     return `
         <div class="lw-tree-node" style="--lw-card-accent: ${preset.color}">
+            ${avatarHtml(who, 'md')}
             <div class="lw-tree-name">${name}</div>
             ${tag}
-            ${carrierMark}
         </div>
     `;
 }
@@ -1115,6 +1352,7 @@ function renderPendingNode(who, preset) {
         : 'Беременность';
     return `
         <div class="lw-tree-node lw-tree-node-pending" style="--lw-card-accent: ${preset.color}">
+            <div class="lw-av lw-av-md lw-av-ph"><i class="fa-solid fa-hourglass-half"></i></div>
             <div class="lw-tree-name">Ожидается</div>
             <div class="lw-tree-tag">${stageLabel} · ${pregnancy.weeks}/${stageMax} нед.</div>
             <div class="lw-tree-sub">от ${carrierDisplayName(who)} · ${preset.offspringLabel.toLowerCase()}: ${pregnancy.offspringCount}</div>
@@ -1127,6 +1365,7 @@ function renderClutchNode(clutch, preset) {
     const label = originPreset.gestationType === 'staged' ? originPreset.stages.second.label : 'Инкубация';
     return `
         <div class="lw-tree-node lw-tree-node-pending" style="--lw-card-accent: ${originPreset.color}">
+            <div class="lw-av lw-av-md lw-av-ph"><i class="fa-solid fa-egg"></i></div>
             <div class="lw-tree-name">В гнезде</div>
             <div class="lw-tree-tag">${label} · ${clutch.weeks}/${clutch.totalWeeks} нед.</div>
             <div class="lw-tree-sub">${clutch.offspringCount} ${(originPreset.offspringLabel || '').toLowerCase()} · от ${carrierDisplayName(clutch.parentWho)}</div>
@@ -1138,8 +1377,9 @@ function renderTreeChildNode(child, grown, preset) {
     const originPreset = resolvePreset(child.universe);
     return `
         <div class="lw-tree-node ${grown ? 'lw-tree-node-grown' : ''}" style="--lw-card-accent: ${originPreset.color}">
+            ${childAvatarHtml(child, 'md')}
             <div class="lw-tree-name">${child.name || 'Без имени'}</div>
-            <div class="lw-tree-tag">${grown ? 'Взрослый' : `${child.ageWeeks || 0} нед.`}</div>
+            <div class="lw-tree-tag">${grown ? 'Взрослый' : formatAge(childAgeDays(child))}</div>
         </div>
     `;
 }
@@ -1185,6 +1425,14 @@ function renderHealthCard(entry, preset) {
     const resolved = (entry.holder.complications || []).filter(c => c.resolved);
     const target = entry.kind === 'clutch' ? entry.id : entry.who;
 
+    // Сколько ещё может проявиться: показываем количество, но НЕ что именно —
+    // иначе пропадёт весь смысл раскрытия по сроку.
+    const pending = (entry.holder._plannedComplications || []).filter(pc => !pc.revealed).length;
+    const weeks = entry.holder.weeks || 0;
+    const total = entry.kind === 'clutch'
+        ? entry.holder.totalWeeks
+        : currentStageMaxWeeks(preset, entry.holder);
+
     const listHtml = active.length
         ? active.map(c => `
             <div class="lw-comp lw-comp-${c.severity}">
@@ -1192,15 +1440,20 @@ function renderHealthCard(entry, preset) {
                 <span>${c.type}</span>
                 <span class="lw-dim">с ${c.week} нед.</span>
             </div>`).join('')
-        : '<div class="lw-dim">Осложнений нет.</div>';
+        : `<div class="lw-dim">Осложнений нет — ${weeks >= total ? 'срок пройден благополучно' : 'пока всё идёт спокойно'}.</div>`;
 
     return `
         <div class="lw-card lw-health-card" style="--lw-card-accent: ${preset.color}">
             <div class="lw-card-label">${entry.label}</div>
-            <div class="lw-health-status lw-health-${info.tone}">
-                <i class="fa-solid ${info.icon}"></i> ${info.text}
+            <div class="lw-health-head">
+                <div class="lw-health-status lw-health-${info.tone}">
+                    <i class="fa-solid ${info.icon}"></i> ${info.text}
+                </div>
+                <span class="lw-dim">${weeks} / ${total} нед.</span>
             </div>
+            <div class="lw-bar"><div class="lw-bar-fill" style="width:${(weeks / Math.max(1, total)) * 100}%"></div></div>
             ${listHtml}
+            ${pending > 0 ? `<div class="lw-dim" style="font-size:.72rem;">Впереди срок, на котором ещё может что-то проявиться (${pending}).</div>` : ''}
             ${resolved.length ? `<div class="lw-dim" style="font-size:0.72rem;">Вылечено ранее: ${resolved.map(c => c.type).join(', ')}</div>` : ''}
             ${active.length ? `<button type="button" class="lw-btn lw-doctor-visit" data-target="${target}">
                 <i class="fa-solid fa-stethoscope"></i> Визит к врачу
@@ -1214,10 +1467,21 @@ function renderTestCard(who, preset) {
     if (!character.canCarry) return '';
     const p = character.pregnancy;
     const last = p?.lastTestResult;
+
+    // Надёжность на текущем сроке — конкретная цифра полезнее общих слов.
+    // Показываем её всегда: если беременности нет, срок нулевой, и это тоже
+    // честно — тест «слеп» просто потому, что показывать нечего.
+    const days = p?.isPregnant ? daysSinceConception(who) : 0;
+    const rel = Math.round(testReliability(days) * 100);
+    const relHtml = p?.isPregnant
+        ? `<div class="lw-dim" style="font-size:.73rem;">Срок ${days} дн. с зачатия · достоверность сейчас ${rel}%</div>`
+        : `<div class="lw-dim" style="font-size:.73rem;">Беременности нет — тест будет отрицательным</div>`;
+
     return `
         <div class="lw-card" style="--lw-card-accent: ${preset.color}">
             <div class="lw-card-label">${carrierDisplayName(who)}</div>
             ${last ? `<div class="lw-test-result lw-test-${last}">${TEST_LABELS[last]} <span class="lw-dim">· день ${p.lastTestRpDay}</span></div>` : '<div class="lw-dim">Тест ещё не делали.</div>'}
+            ${relHtml}
             <button type="button" class="lw-btn lw-take-test" data-who="${who}"><i class="fa-solid fa-vial"></i> Сделать тест</button>
         </div>
     `;
@@ -1282,15 +1546,17 @@ function renderHealthSection(preset) {
 
     $('#lw_content').html(`
         <h2 class="lw-content-title">Здоровье</h2>
-        ${holders.length ? `<div class="lw-cycle-grid">${holders.map(h => renderHealthCard(h, preset)).join('')}</div>`
+        ${holders.length ? `<div class="lw-cycle-grid">${holders.map(h => renderHealthCard(h, preset)).join('')}</div>
+            <p class="lw-placeholder-note">Осложнения определяются один раз при зачатии и проявляются по мере срока — само ничего не проходит. Врач за визит пробует вылечить всё сразу: обычное с шансом 75%, критическое — 50%. Осложнение не прерывает беременность само по себе, это повод для сцены.</p>`
             : '<div class="lw-empty"><i class="fa-solid fa-heart-pulse"></i><p>Сейчас нечего отслеживать — ни беременности, ни кладки.</p></div>'}
         ${ppHtml ? `<h3 class="lw-content-subtitle">Послеродовое восстановление</h3><div class="lw-cycle-grid">${ppHtml}</div>` : ''}
-        ${testsHtml ? `<h3 class="lw-content-subtitle">Тесты на беременность</h3><div class="lw-cycle-grid">${testsHtml}</div>` : ''}
+        ${testsHtml ? `<h3 class="lw-content-subtitle">Тесты на беременность</h3>
+            <p class="lw-placeholder-note">Достоверность зависит от срока: до 8 дней с зачатия тест ничего не покажет, к 11 дням — около трети, к двум неделям — две трети, дальше почти наверняка. До 14 дней положительный результат выглядит слабой второй полоской. Ложноположительных не бывает: «положительно» значит беременность есть.</p>
+            <div class="lw-cycle-grid">${testsHtml}</div>` : ''}
         <h3 class="lw-content-subtitle">Внешность родителей</h3>
-        <p class="lw-placeholder-note">От неё дети наследуют глаза и волосы. Для обычных цветов работает наследование: тёмное доминирует, рецессивное проявляется примерно в трети случаев. Необычные цвета (золотые, фиолетовые) наследуются от одного из родителей поровну. Остальное модель дописывает сама.</p>
+        <p class="lw-placeholder-note">От неё дети наследуют глаза и волосы. Для обычных цветов работает наследование: тёмное доминирует, рецессивное проявляется примерно в трети случаев. Необычные цвета наследуются от одного из родителей поровну. Остальное модель дописывает сама.</p>
         ${renderLooksHints()}
         <div class="lw-cycle-grid">${looksHtml}</div>
-        <p class="lw-placeholder-note">Осложнения определяются один раз при зачатии и проявляются по мере срока. Врач лечит обычное с шансом 75%, критическое — 50%.</p>
     `);
 
     $('.lw-looks').on('change', function () {
@@ -1325,35 +1591,184 @@ function renderHealthSection(preset) {
     });
 }
 
-// ─── Раздел "Настройки" ───
-function renderContraceptionCard(who) {
-    const name = carrierDisplayName(who);
-    const current = getCharacterData(who).contraception || 'none';
-    const options = Object.values(CONTRACEPTION_TYPES).map(c => `
-        <option value="${c.id}" ${c.id === current ? 'selected' : ''}>${c.label}${c.chance ? ` (${c.chance}%)` : ''}</option>
-    `).join('');
+// ─── Свои аватарки ───
+function renderAvatarCard(who, preset) {
+    const custom = getCustomAvatar(who);
     return `
-        <div class="lw-card">
-            <div class="lw-card-label">${name}</div>
-            <select class="lw-select lw-contraception-select" data-who="${who}">${options}</select>
+        <div class="lw-card" style="--lw-card-accent: ${preset.color}">
+            <div class="lw-card-label">${carrierDisplayName(who)}</div>
+            <div class="lw-avatar-row">
+                ${avatarHtml(who, 'lg')}
+                <div class="lw-avatar-controls">
+                    <input type="file" accept="image/*" class="lw-av-file" data-who="${who}" style="display:none;">
+                    <button type="button" class="lw-btn lw-av-upload" data-who="${who}">
+                        <i class="fa-solid fa-image"></i> Загрузить
+                    </button>
+                    ${custom ? `<button type="button" class="lw-btn lw-btn-muted lw-av-clear" data-who="${who}">Убрать</button>` : ''}
+                </div>
+            </div>
+            <label style="display:block;font-size:.74rem;color:var(--lw-text-dim);margin-top:8px;">
+                Или ссылка на картинку
+                <input type="text" class="lw-input lw-av-url" data-who="${who}" style="width:100%;margin-top:4px;"
+                    placeholder="https://…" value="${custom && !custom.startsWith('lw:') ? custom : ''}">
+            </label>
         </div>
     `;
 }
 
+function bindAvatarEvents() {
+    $('.lw-av-upload').on('click', function () {
+        $(`.lw-av-file[data-who="${$(this).data('who')}"]`).trigger('click');
+    });
+
+    $('.lw-av-file').on('change', async function () {
+        const who = $(this).data('who');
+        const file = this.files?.[0];
+        if (!file) return;
+        const $btn = $(`.lw-av-upload[data-who="${who}"]`);
+        const label = $btn.html();
+        $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Загрузка…');
+        try {
+            const base64 = await readImageFile(file);
+            const path = await uploadAvatar(base64, `${who}_${carrierDisplayName(who)}`);
+            setCustomAvatar(who, path);
+            saveSettings();
+            renderContent();
+        } catch (e) {
+            $btn.prop('disabled', false).html(label);
+            showNotification(`<i class="fa-solid fa-triangle-exclamation"></i> ${e.message}`, 'warning');
+        }
+        // Файл на сервере не удаляем: он может использоваться в другом чате,
+        // да и сама Таверна свои картинки не подчищает.
+        this.value = '';
+    });
+
+    $('.lw-av-clear').on('click', function () {
+        setCustomAvatar($(this).data('who'), '');
+        saveSettings();
+        renderContent();
+    });
+
+    $('.lw-av-url').on('change', function () {
+        const who = $(this).data('who');
+        const v = $(this).val().trim();
+        // Пустая строка = вернуться к аватарке из Таверны
+        setCustomAvatar(who, v);
+        saveSettings();
+        renderContent();
+    });
+}
+
+// ─── Оформление ───
+function getAppearance() {
+    const s = getSettings();
+    if (!s.appearance || typeof s.appearance !== 'object') s.appearance = { ...DEFAULT_APPEARANCE };
+    return { ...DEFAULT_APPEARANCE, ...s.appearance };
+}
+
+function setAppearance(patch) {
+    const s = getSettings();
+    s.appearance = { ...getAppearance(), ...patch };
+    applyAppearanceEverywhere(s.appearance);
+    return s.appearance;
+}
+
+function renderAppearanceControls() {
+    const a = getAppearance();
+
+    const styles = Object.values(PANEL_STYLES).map(st => `
+        <button type="button" class="lw-style-card lw-style-pick ${a.panelStyle === st.id ? 'is-active' : ''}" data-style="${st.id}">
+            <span class="lw-style-name">${st.label}</span>
+            <span class="lw-style-hint">${st.hint}</span>
+        </button>
+    `).join('');
+
+    const schemes = Object.values(COLOR_SCHEMES).map(sc => {
+        // Для превью нужны конкретные цвета: у «своего» берём выбранный,
+        // у родной — переменные Таверны, они подхватятся сами.
+        const preview = sc.id === 'custom'
+            ? { accent: a.customColor, tint: `color-mix(in srgb, ${a.customColor} 15%, #14151a)`, text: '#eceef4' }
+            : sc;
+        return `
+            <button type="button" class="lw-scheme lw-scheme-pick ${a.scheme === sc.id ? 'is-active' : ''}" data-scheme="${sc.id}"
+                style="--sw-accent:${preview.accent}; --sw-tint:${preview.tint}; --sw-text:${preview.text};">
+                <span class="lw-scheme-check"><i class="fa-solid fa-circle-check"></i></span>
+                <span class="lw-scheme-preview">
+                    <span class="lw-scheme-line is-accent"></span>
+                    <span class="lw-scheme-line"></span>
+                    <span class="lw-scheme-line is-short"></span>
+                </span>
+                <span class="lw-scheme-name">${sc.label}</span>
+            </button>
+        `;
+    }).join('');
+
+    return `
+        <div class="lw-style-grid">${styles}</div>
+
+        <div class="lw-card-label" style="margin-bottom:6px;">Цветовая схема</div>
+        <p class="lw-placeholder-note">«Как в Таверне» следует за твоей темой SillyTavern. Остальные схемы независимы и перебивают её.</p>
+        <div class="lw-scheme-grid">${schemes}</div>
+
+        ${a.scheme === 'custom' ? `
+            <div class="lw-range-row">
+                <span class="lw-range-label">Свой цвет<small>Из него выводятся тон и границы</small></span>
+                <input type="color" class="lw-input lw-color-input" id="lw_ap_color" value="${a.customColor}">
+            </div>` : ''}
+
+        <div class="lw-range-row">
+            <span class="lw-range-label">Плотность стекла<small>Выше — панель менее прозрачная</small></span>
+            <input type="range" id="lw_ap_glass" min="30" max="100" step="1" value="${a.glassOpacity}">
+            <span class="lw-range-val" id="lw_ap_glass_val">${a.glassOpacity}%</span>
+        </div>
+
+    `;
+}
+
+function bindAppearanceEvents() {
+    $('.lw-style-pick').on('click', function () {
+        setAppearance({ panelStyle: $(this).data('style') });
+        saveSettings();
+        renderContent();
+    });
+    $('.lw-scheme-pick').on('click', function () {
+        setAppearance({ scheme: $(this).data('scheme') });
+        saveSettings();
+        renderContent();
+    });
+    $('#lw_ap_color').on('input', function () {
+        setAppearance({ customColor: $(this).val() });
+        saveSettings();
+    });
+    // Ползунки применяются на лету, а сохраняются по отпусканию —
+    // иначе каждое движение мыши писало бы в настройки.
+    $('#lw_ap_glass').on('input', function () {
+        const v = parseInt($(this).val());
+        $('#lw_ap_glass_val').text(`${v}%`);
+        setAppearance({ glassOpacity: v });
+    }).on('change', () => saveSettings());
+}
+
+// ─── Раздел "Настройки" ───
 function renderSettingsSection() {
     const s = getSettings();
+    const preset = resolvePreset(getActiveUniverse());
     customDraft = getCustomPresetDraft();
 
     $('#lw_content').html(`
         <h2 class="lw-content-title">Настройки</h2>
 
         <div class="lw-settings-group">
-            <h3 class="lw-content-subtitle">Контрацепция</h3>
+            <h3 class="lw-content-subtitle">Оформление</h3>
+            ${renderAppearanceControls()}
+        </div>
+
+        <div class="lw-settings-group">
+            <h3 class="lw-content-subtitle">Аватарки</h3>
+            <p class="lw-placeholder-note">Своя картинка вместо той, что стоит в Таверне. Запоминается для этого чата — один и тот же персонаж может выглядеть по-разному в разных историях. Файл сжимается до 256px и кладётся на сервер Таверны — виден с любого устройства.</p>
             <div class="lw-cycle-grid">
-                ${renderContraceptionCard('user')}
-                ${renderContraceptionCard('char')}
+                ${['user', 'char'].map(who => renderAvatarCard(who, resolvePreset(getActiveUniverse()))).join('')}
             </div>
-            <p class="lw-placeholder-note">Пока просто хранится — сама механика зачатия (шанс на успех/провал защиты) появится на Этапе 9.</p>
         </div>
 
         <div class="lw-settings-group">
@@ -1379,10 +1794,6 @@ function renderSettingsSection() {
             <label class="lw-checkbox-row">
                 <input type="checkbox" id="lw_setting_notifications" ${s.showNotifications ? 'checked' : ''}>
                 Показывать уведомления о событиях
-            </label>
-            <label class="lw-checkbox-row">
-                <input type="checkbox" id="lw_setting_hidden_pregnancy" ${s.hiddenPregnancy ? 'checked' : ''}>
-                Скрытая беременность — герой не знает о зачатии, пока не заметит сам
             </label>
         </div>
 
@@ -1617,10 +2028,6 @@ function bindSettingsEvents() {
         setShowNotifications($(this).is(':checked'));
         saveSettings();
     });
-    $('#lw_setting_hidden_pregnancy').on('change', function () {
-        setHiddenPregnancy($(this).is(':checked'));
-        saveSettings();
-    });
     $('#lw_setting_infoblockPosition').on('change', function () {
         getSettings().infoblockPosition = $(this).val();
         saveSettings();
@@ -1630,6 +2037,7 @@ function bindSettingsEvents() {
         getSettings().customInfoblockCss = $(this).val();
         saveSettings();
         injectCustomInfoblockCss();
+        applyAppearanceEverywhere(getAppearance());
         renderInfoblock();
     });
     $('.lw-contraception-select').on('change', function () {
@@ -1655,6 +2063,8 @@ function bindSettingsEvents() {
     }
 
     bindCustomPresetEvents();
+    bindAppearanceEvents();
+    bindAvatarEvents();
 
     $('#lw_rescan_check').on('click', () => {
         const est = estimateHistory();
@@ -1728,6 +2138,7 @@ function bindSettingsEvents() {
 
 // ─── Открытие/закрытие модалки ───
 function openPanel() {
+    applyAppearanceEverywhere(getAppearance());
     renderUniverseTabs();
     renderSidebar();
     renderContent();
@@ -1763,6 +2174,9 @@ async function ensurePanelLoaded() {
 
     // Автоматика поменяла состояние (пришёл тег от модели) — обновляем то,
     // что сейчас на экране, чтобы не приходилось переключать вкладки руками.
+    document.addEventListener('lifeweaver:appearance', () => {
+        applyAppearanceEverywhere(getAppearance());
+    });
     document.addEventListener('lifeweaver:state-changed', () => {
         if ($('#lw_modal_overlay').hasClass('lw-open')) {
             renderUniverseTabs();

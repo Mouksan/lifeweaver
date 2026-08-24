@@ -63,7 +63,7 @@ export const UNIVERSE_PRESETS = {
     custom: {
         id: 'custom',
         label: 'Кастом',
-        sublabel: 'Этап 8',
+        sublabel: 'Своя',
         disabled: true,
         color: '#5a5850',
     },
@@ -193,6 +193,13 @@ export const defaultSettings = {
     pregnancyDuration: 40,
     // Показывать ли уведомления о событиях
     showNotifications: true,
+    // Оформление панели: стиль отрисовки, цветовая схема, прозрачность, шрифт
+    appearance: {
+        panelStyle: 'legacy',
+        scheme: 'native',
+        customColor: '#a98bd6',
+        glassOpacity: 82,
+    },
     // Инфоблок в чате: 'off' | 'top' | 'bottom' — сводка в последнем ответе бота
     infoblockPosition: 'off',
     // Свой CSS для инфоблока (вставляется как есть)
@@ -205,7 +212,7 @@ export const defaultSettings = {
     obviousAtWeek: 12,
     // Возраст в днях, после которого ребёнок сам уходит в архив «вырос»
     // (как babyMaxAgeDays у вдохновителя). 0 — никогда не архивировать.
-    childMaxAgeDays: 730,
+    childMaxAgeDays: 1825,
     // Кастомная вселенная (5-й слот) — конструктор в разделе "Настройки".
     // isConfigured: false — вкладка задизейблена, пока не сохранили хотя бы раз.
     customPreset: {
@@ -267,6 +274,16 @@ export const defaultCharacterData = {
     fertilityAid: null,
     // Внешность для наследования детьми (менделевская модель)
     looks: { eyes: '', hair: '' },
+    // Своя аватарка вместо той, что стоит в Таверне. Хранится ПУТЁМ:
+    // файл лежит на сервере ST (/user/images/lifeweaver), тут только ссылка.
+    avatar: '',
+    // Своё отображаемое имя — чисто визуальное, настоящее имя персонажа
+    // в Таверне не трогает. Пусто = показываем имя из карточки/персоны.
+    displayName: '',
+    // Супрессанты: глушат течку/гон. У вдохновителя это отдельный флаг с
+    // фертильностью 0.1 — берём его, а не «таблетки» из контрацепции:
+    // супрессанты подавляют сам цикл, а не только зачатие.
+    suppressants: false,
     // Послеродовое состояние: { startRpDay, lactating } — null если не рожал(а)
     postpartum: null,
     pregnancy: { ...defaultPregnancyData },

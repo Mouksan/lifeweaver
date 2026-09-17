@@ -1245,6 +1245,63 @@ function advanceClutchesByDays(days) {
 // Зачатие: только если персонаж явно отмечен носителем и ещё не беременен.
 // Тег без этого флага молча игнорируется — это и есть смысл явного флага
 // "может забеременеть", он действует одинаково что для ручной кнопки, что для автоматики.
+// ── Шанс зачатия ──
+// Портировано у вдохновителя: база 20%, множитель от фазы цикла, множитель
+// послеродового, отдельный бросок на пробой контрацепции. Раньше у нас
+// любой тег CONCEPTION_CHECK давал беременность ГАРАНТИРОВАННО — отсюда
+// ощущение, что залетают все подряд.
+export const BASE_CONCEPTION_CHANCE = 20;
+
+// Множители фертильности по фазе (числа вдохновителя)
+const PHASE_FERTILITY = {
+    heat: 3.2,
+    preheat: 1.4,
+    normal: 0.35,
+    postheat: 0,       // после течки тело истощено — зачатия не бывает
+    suppressed: 0.1,
+    paused: 0,         // цикл остановлен беременностью или восстановлением
+    beta: 1,
+    rut: 1,
+    postrut: 1,
+};
+
+// Возвращает { chance, roll, success, reason } — пригодно и для показа игроку
+export function rollConception(who, rnd = Math.random) {
+    const character = getCharacterData(who);
+    const preset = getActivePreset();
+
+    let chance = BASE_CONCEPTION_CHANCE;
+
+    // Фаза цикла: во вселенных без цикла множителя нет, фертильность ровная
+    if (preset.cycleSystem === 'abo') {
+        const phase = getCyclePhase(who);
+        const mul = PHASE_FERTILITY[phase?.key] ?? 1;
+        chance = Math.round(chance * mul);
+        if (mul === 0) return { chance: 0, roll: 0, success: false, reason: 'фаза цикла' };
+    }
+
+    // Послеродовое: пока цикл не вернулся, зачатие почти исключено
+    const pp = getPostpartum(who);
+    if (pp) chance = Math.round(chance * pp.fertilityMul);
+
+    // Средство фертильности перебивает всё: ради него его и принимают
+    if (getFertilityAid(who)) chance = 95;
+
+    // Контрацепция — отдельным броском, как у вдохновителя: сначала
+    // проверяем, выдержала ли защита, и только потом считаем зачатие
+    const contra = CONTRACEPTION_TYPES[character.contraception] || CONTRACEPTION_TYPES.none;
+    if (contra.chance > 0) {
+        const protectionRoll = Math.floor(rnd() * 100) + 1;
+        if (protectionRoll <= contra.chance) {
+            return { chance: 0, roll: protectionRoll, success: false, reason: contra.label.toLowerCase() };
+        }
+    }
+
+    chance = Math.max(0, Math.min(100, chance));
+    const roll = Math.floor(rnd() * 100) + 1;
+    return { chance, roll, success: roll <= chance, reason: null };
+}
+
 export function applyConception(who) {
     const character = getCharacterData(who);
     if (!character.canCarry) return false;
@@ -1252,6 +1309,12 @@ export function applyConception(who) {
     // После недавней потери зачатие заблокировано на несколько сообщений —
     // иначе модель «воскрешает» беременность из старого контекста.
     if (isBlocked('conception', who)) return false;
+
+    // Тег от модели означает «был акт», а не «наступила беременность» —
+    // исход решает бросок.
+    const result = rollConception(who);
+    if (!result.success) return result;
+
     startPregnancy(who);
     return true;
 }

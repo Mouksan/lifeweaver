@@ -1282,6 +1282,9 @@ function bindChildEvents() {
     $('.lw-child-age').on('change', function () {
         updateChildField($(this).data('id'), 'ageWeeks', Math.max(0, parseInt($(this).val()) || 0));
         saveSettings();
+        // Без перерисовки бейджи стадии и возраста остаются от прошлого
+        // рендера: сколько недель ни впиши, подпись не менялась.
+        renderContent();
     });
     const parseTraitList = (v) => String(v || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 4);
     $('.lw-child-personality').on('change', function () {

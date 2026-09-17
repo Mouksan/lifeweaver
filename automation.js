@@ -241,12 +241,21 @@ function applyScanResult(result, debug = null) {
             continue;
         }
         if (conceptionTag) {
-            if (applyConception(who)) {
+            const res = applyConception(who);
+            if (res === true) {
                 const hidden = getSettings().hiddenPregnancy;
                 log(`${who}: зачатие применено`);
                 notify(hidden
                     ? '<i class="fa-solid fa-user-secret"></i> Зачатие произошло — но он пока не знает'
                     : '<i class="fa-solid fa-check"></i> Зачатие произошло!', 'success');
+            } else if (res && typeof res === 'object') {
+                // Бросок не прошёл — это нормальный исход, а не сбой.
+                // Показываем цифры, чтобы было видно, что механика работает.
+                const detail = res.reason
+                    ? `сработала защита (${res.reason})`
+                    : `${res.roll} из ${res.chance}%`;
+                log(`${who}: зачатия не произошло — ${detail}`);
+                notify(`<i class="fa-solid fa-dice"></i> Зачатия не произошло · ${detail}`, 'info');
             } else {
                 const c = getCharacterData(who);
                 const why = !c.canCarry ? 'не отмечен носителем'

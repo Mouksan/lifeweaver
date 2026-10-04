@@ -23,10 +23,14 @@ import { getSettings, getChatData, getChildren, getGrownChildren, getCharacterDa
          applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex,
          applyChildTraits, setTimeOfDay, setRpTime, createUndoCheckpoint, applyStatus,
          clearResurrectionBlocks, getClutches } from './state.js';
-import { scanMessage, stripThink } from './scanner.js';
+import { scanMessage } from './scanner.js';
+import { composeScanText, snapshotOfChatData, clearRegenState, HISTORY_CAP } from './automation.js';
 
-function rawTextOf(msg) {
-    return (msg?.extra && msg.extra.lifeweaverRaw) || msg?.mes || '';
+// Текст сообщения для скана — тем же способом, что и живой скан: проза плюс
+// теги ИМЕННО показанного варианта. Раньше брался сырой исходник из extra,
+// а он мог остаться от другого свайпа — и ретроскан читал чужие теги.
+function scanTextOf(msg) {
+    return composeScanText(msg).text;
 }
 
 // Оценка: сколько сообщений содержит наши теги. Нужна, чтобы честно
@@ -38,7 +42,7 @@ export function estimateHistory() {
         let tagged = 0;
         for (const msg of chat) {
             if (!msg?.mes || msg.is_system) continue;
-            if (scanMessage(stripThink(rawTextOf(msg)))) tagged++;
+            if (scanMessage(scanTextOf(msg))) tagged++;
         }
         return { total: chat.length, tagged };
     } catch (e) {
@@ -102,10 +106,21 @@ export function scanFullHistory() {
             c.postpartum = null;
         }
 
-        for (const msg of chat) {
-            if (!msg?.mes || msg.is_system) continue;
-            const result = scanMessage(stripThink(rawTextOf(msg)));
-            if (!result) continue;
+        // История позиций пересобирается по ходу прохода: старая описывает
+        // состояние ДО ретроскана, и свайп откатил бы к нему — то есть
+        // вернул бы всё, что ретроскан исправил. Пишем только хвост чата:
+        // свайпнуть можно лишь последнее сообщение, глубже история не нужна.
+        const recorded = [];
+        const recordFrom = Math.max(0, chat.length - HISTORY_CAP - 1);
+        const recordPosition = (i) => {
+            if (i >= recordFrom) recorded.push({ pos: i + 1, state: snapshotOfChatData() });
+        };
+
+        for (let i = 0; i < chat.length; i++) {
+            const msg = chat[i];
+            if (!msg?.mes || msg.is_system) { recordPosition(i); continue; }
+            const result = scanMessage(scanTextOf(msg));
+            if (!result) { recordPosition(i); continue; }
             stats.processed++;
 
             if (result.daysPassed > 0) {
@@ -154,25 +169,35 @@ export function scanFullHistory() {
             // потери — при чтении истории они не нужны, снимаем сразу.
             clearResurrectionBlocks('user');
             clearResurrectionBlocks('char');
+            recordPosition(i);
         }
 
-        // Возвращаем сохранённое
-        chatData.universe = savedUniverse;
+        // Возвращаем сохранённое — и в итоговое состояние, и в каждую
+        // записанную позицию истории, чтобы они не расходились.
+        const restoreKept = (target) => {
+            target.universe = savedUniverse;
+            for (const who of ['user', 'char']) {
+                const c = target.characters?.[who];
+                if (!c) continue;
+                c.looks = structuredClone(savedLooks[who]);
+                Object.assign(c, structuredClone(savedSettingsPerChar[who]));
+            }
+            // Выросшие дети не пересоздаются тегами — возвращаем как были
+            target.grownChildren = structuredClone(savedGrown);
+            // Если проход не нашёл ни одних родов, вернём детей, что были до него:
+            // скорее всего они добавлены руками, и терять их нельзя.
+            if (stats.births === 0 && savedManualChildren.length > 0) {
+                target.children = structuredClone(savedManualChildren);
+            }
+        };
+        restoreKept(chatData);
+        for (const r of recorded) restoreKept(r.state);
         if (savedUndo) chatData._undo = savedUndo;
-        for (const who of ['user', 'char']) {
-            const c = getCharacterData(who);
-            c.looks = savedLooks[who];
-            Object.assign(c, savedSettingsPerChar[who]);
-        }
-        // Выросшие дети не пересоздаются тегами — возвращаем как были
-        chatData.grownChildren = savedGrown;
-        // Если проход не нашёл ни одних родов, вернём детей, что были до него:
-        // скорее всего они добавлены руками, и терять их нельзя.
-        if (stats.births === 0 && savedManualChildren.length > 0) {
-            chatData.children = savedManualChildren;
-        }
+        chatData._history = recorded.slice(-HISTORY_CAP);
     } finally {
         s.showNotifications = oldNotify;
+        // Снимки в памяти описывают состояние до ретроскана — выбрасываем
+        clearRegenState();
     }
 
     return stats;

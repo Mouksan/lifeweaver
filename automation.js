@@ -2,24 +2,27 @@
 // AUTOMATION — подписка на события ST + применение результатов скана
 // ═══════════════════════════════════════════
 //
-// Логика портирована с message-handler.js вдохновителя. Не изобретаем своё:
-// у них это уже прошло проверку боем. Взято один в один по смыслу:
+// Логика портирована с message-handler.js вдохновителя: история снапшотов
+// по позициям, откат при удалении, stripThink перед сканом, исходник тегов
+// в msg.extra, подчистка отрисованного DOM.
 //
-//  • ДЕДУП ПО ХЭШУ: та же позиция в чате + тот же текст → скип. Иначе один
-//    ответ обрабатывается дважды (MESSAGE_RECEIVED + дорисовка/стриминг),
-//    и DAYS_PASSED накручивается по второму разу.
-//  • ИСТОРИЯ СНАПШОТОВ: перед обработкой каждого сообщения сохраняем полное
-//    состояние чата под номером позиции. Удалили сообщение → откатываемся
-//    к снапшоту предыдущей позиции.
-//  • РЕГЕН/СВАЙП: перед обработкой держим снапшот "до". Свайп на другой
-//    вариант ответа = сначала восстановить состояние до старого варианта,
-//    потом применить теги нового. Иначе дни/события суммируются с обоих.
-//  • stripThink перед сканом (репетиция тега в думалке ≠ событие).
-//  • Сохранение исходника в msg.extra перед вырезанием тегов.
-//  • Явная подчистка отрисованного DOM.
+// ── Главное правило (переделано в 2.7, баг со стаканием дней на свайпах) ──
+// Состояние ПОСЛЕ сообщения на позиции P = состояние ДО него + теги ЭТОГО
+// варианта сообщения. Ровно один раз, сколько бы событий Таверна ни прислала.
 //
-// Отличие только одно, наше: события двухстадийного вынашивания (LAY_CLUTCH)
-// и универсальные теги вместо привязанных к одной вселенной.
+// Как это обеспечивается:
+//  • Теги, снятые с сообщения, хранятся в msg.extra вместе с номером свайпа,
+//    к которому они относятся (lifeweaverTags + lifeweaverSwipe). Таверна при
+//    новом свайпе может протащить extra от прошлого варианта — чужие теги по
+//    номеру свайпа отсекаются и в скан больше не попадают.
+//  • На сообщении стоит отметка «применено» (lifeweaverApplied: свайп +
+//    подпись тегов). Она лежит в файле чата и переживает перезагрузку, поэтому
+//    повторные события (MESSAGE_RECEIVED + GENERATION_ENDED, чужие тихие
+//    генерации, F5) больше ничего не применяют второй раз.
+//  • Если вариант сообщения сменился (свайп, реген, continue с новыми тегами),
+//    состояние сначала откатывается к «до» — и берётся оно из сохранённой
+//    истории позиций, а не из памяти вкладки. Снимок в памяти остался только
+//    запасным вариантом.
 
 import { eventSource, event_types, saveSettingsDebounced } from '../../../../script.js';
 import {
@@ -36,17 +39,20 @@ import { showNotification, showBirthDialog, showGraduationDialog } from './notif
 import { TEST_LABELS } from './health.js';
 import { renderInfoblock } from './infoblock.js';
 
-const HISTORY_CAP = 25;
+export const HISTORY_CAP = 25;
 
 // ── Состояние обработки (живёт в памяти, не в настройках) ──
 let _isRegeneration = false;
+// Запасной снимок «до последнего обработанного сообщения» — на случай, если
+// в сохранённой истории нужной позиции почему-то нет.
 let _preRegenSnapshot = null;
 let _snapshotChatId = null;
-let _lastScannedPosition = null;
-let _lastScannedHash = null;
-let _lastScannedHashStripped = null;
+let _snapshotPos = null;
+// Позиции, по которым уже предупреждали «откатиться некуда» — тост не чаще
+// одного раза на позицию, сколько ни свайпай.
+const _warnedPositions = new Set();
 
-// Быстрый хэш текста — для дедупа сканов
+// Быстрый хэш текста
 function simpleHash(str) {
     let h = 0;
     for (let i = 0; i < str.length; i++) {
@@ -59,8 +65,110 @@ function getStContext() {
     return typeof SillyTavern?.getContext === 'function' ? SillyTavern.getContext() : null;
 }
 
+// ═══════════════════════════════════════════
+// ТЕКСТ ДЛЯ СКАНА: проза + теги ЭТОГО варианта
+// ═══════════════════════════════════════════
+
+const COMMENT_RE = /<!--[\s\S]*?-->/g;
+
+// Наши теги из текста — целыми HTML-комментариями, по порядку, без дублей
+function ourTagComments(text) {
+    const all = String(text || '').match(COMMENT_RE) || [];
+    return [...new Set(all.filter(c => hasOurTags(c)).map(c => c.trim()))];
+}
+
+function swipeIdOf(msg) {
+    return typeof msg?.swipe_id === 'number' ? msg.swipe_id : null;
+}
+
+// Видимый текст без наших тегов — так же, как его чистит stampMessage
+function cleanText(text) {
+    return stripOurTags(text || '').replace(/\n{3,}/g, '\n\n').trimEnd();
+}
+
+// Старый формат (до 2.7): в extra лежал только сырой текст, без номера свайпа.
+// Верим ему, если видимый текст начинается с него же без тегов. Если он
+// совпадает с ДРУГИМ свайпом этого сообщения — это исходник чужого варианта,
+// протащенный Таверной, и в скан он не идёт. Если не совпадает ни с чем
+// (текст поправило другое расширение) — улик против нет, верим.
+function legacyRawBelongsHere(msg, raw) {
+    const clean = cleanText(raw);
+    const mes = msg.mes || '';
+    const swipes = Array.isArray(msg.swipes) ? msg.swipes : [];
+    const cur = swipeIdOf(msg);
+    if (!clean) return swipes.length <= 1;
+    if (mes.startsWith(clean)) return true;
+    const otherMatches = swipes.some((s, i) => i !== cur && typeof s === 'string' && s.startsWith(clean));
+    return !otherMatches;
+}
+
+// Теги, снятые с этого же варианта сообщения при прошлом скане
+function storedTagsOf(msg) {
+    const ex = msg?.extra;
+    if (!ex) return [];
+    if (Array.isArray(ex.lifeweaverTags)) {
+        return (ex.lifeweaverSwipe ?? null) === swipeIdOf(msg) ? ex.lifeweaverTags.slice() : [];
+    }
+    if (typeof ex.lifeweaverRaw === 'string' && ex.lifeweaverRaw && legacyRawBelongsHere(msg, ex.lifeweaverRaw)) {
+        return ourTagComments(stripThink(ex.lifeweaverRaw));
+    }
+    return [];
+}
+
+// Собирает текст для скана. Сохранённые теги идут ПЕРВЫМИ: у одиночных тегов
+// вроде DAYS_PASSED побеждает первый, и continue, дописавший свежий
+// «DAYS_PASSED:0», не перебьёт исходное число дней.
+// Экспортируется — тем же способом читает историю ретроскан.
+export function composeScanText(msg) {
+    const visible = stripThink(msg?.mes || '');
+    const tags = [...new Set([...storedTagsOf(msg), ...ourTagComments(visible)])];
+    const prose = stripOurTags(visible);
+    const text = tags.length ? `${prose}\n${tags.join('\n')}` : prose;
+    return { text, tags, sig: simpleHash(tags.join('\n')) };
+}
+
+// Записывает на сообщение (и в его свайп): какие теги сняты, с какого
+// варианта, что они применены. Убирает теги из видимого текста.
+function stampMessage(msg, swipe, tags, sig) {
+    if (!msg) return;
+    msg.extra = msg.extra || {};
+    const clean = cleanText(msg.mes);
+    const fields = {
+        lifeweaverTags: tags.slice(),
+        lifeweaverSwipe: swipe,
+        lifeweaverApplied: { swipe, sig },
+    };
+    // Сырой текст — для ретроскана и совместимости со старыми версиями
+    const raw = tags.length ? `${clean}\n${tags.join('\n')}` : null;
+
+    const write = (extra) => {
+        Object.assign(extra, structuredClone(fields));
+        if (raw) extra.lifeweaverRaw = raw;
+        else delete extra.lifeweaverRaw; // иначе остался бы исходник чужого варианта
+    };
+    write(msg.extra);
+    // Тот же набор — в swipe_info этого свайпа: при перелистывании Таверна
+    // восстанавливает extra оттуда, и у каждого варианта будут свои теги.
+    if (swipe !== null && Array.isArray(msg.swipe_info) && msg.swipe_info[swipe]) {
+        const si = msg.swipe_info[swipe];
+        if (!si.extra || typeof si.extra !== 'object') si.extra = {};
+        write(si.extra);
+    }
+
+    if (clean !== msg.mes) {
+        msg.mes = clean;
+        if (Array.isArray(msg.swipes) && swipe !== null && msg.swipes[swipe] !== undefined) {
+            msg.swipes[swipe] = clean;
+        }
+    }
+}
+
+// ═══════════════════════════════════════════
+// ИСТОРИЯ СОСТОЯНИЙ ПО ПОЗИЦИЯМ
+// ═══════════════════════════════════════════
+
 // Снапшот per-chat состояния без самой истории (иначе она вложится в себя)
-function snapshotOfChatData() {
+export function snapshotOfChatData() {
     const chat = getChatData();
     const copy = structuredClone(chat);
     // Ни история откатов, ни стек отмен внутрь снимка не попадают — иначе
@@ -89,7 +197,42 @@ export function pushStateHistory(pos) {
     } catch (e) { /* ignore */ }
 }
 
-// Откат к моменту, когда в чате было newLen сообщений.
+function hasHistoryAt(pos) {
+    const hist = getChatData()._history;
+    return Array.isArray(hist) && hist.some(h => h.pos === pos);
+}
+
+// Полная замена состояния снимком; стек отмен и история переживают
+function replaceChatState(state, keepHistory) {
+    const chat = getChatData();
+    const keptUndo = chat._undo;
+    for (const k of Object.keys(chat)) delete chat[k];
+    Object.assign(chat, structuredClone(state));
+    if (keptUndo) chat._undo = keptUndo;
+    chat._history = keepHistory;
+}
+
+// Откат к состоянию ДО сообщения на позиции pos.
+// Источник 1 — сохранённая история (последняя запись раньше pos).
+// Источник 2 — снимок в памяти, если он снят именно перед этой позицией.
+// Возвращает описание для диагностики или null, если откатываться некуда.
+function restoreStateBefore(pos, chatIdNow) {
+    const chat = getChatData();
+    const hist = Array.isArray(chat._history) ? chat._history : [];
+    const before = hist.filter(h => h.pos < pos);
+    const target = before.length ? before[before.length - 1] : null;
+    if (target) {
+        replaceChatState(target.state, before);
+        return `к позиции ${target.pos} (сохранённая история)`;
+    }
+    if (_preRegenSnapshot && _snapshotChatId === chatIdNow && _snapshotPos === pos) {
+        replaceChatState(_preRegenSnapshot, hist.filter(h => h.pos < pos));
+        return 'к снимку в памяти';
+    }
+    return null;
+}
+
+// Откат к моменту, когда в чате было newLen сообщений (удаление сообщения).
 export function rollbackToPosition(newLen) {
     try {
         const chat = getChatData();
@@ -103,18 +246,11 @@ export function rollbackToPosition(newLen) {
         }
 
         // Полная замена состояния (с удалением ключей, появившихся позже)
-        const keptUndo = chat._undo;
-        for (const k of Object.keys(chat)) delete chat[k];
-        Object.assign(chat, structuredClone(target.state));
-        chat._history = kept;
-        if (keptUndo) chat._undo = keptUndo;
+        replaceChatState(target.state, kept);
 
         _preRegenSnapshot = snapshotOfChatData();
         _snapshotChatId = getCurrentChatId();
-        // Позиция скана протухла — следующий ответ должен обработаться заново
-        _lastScannedPosition = null;
-        _lastScannedHash = null;
-        _lastScannedHashStripped = null;
+        _snapshotPos = newLen + 1;
 
         saveSettingsDebounced();
         notifyStateChanged();
@@ -129,22 +265,12 @@ export function markRegeneration() {
     _isRegeneration = true;
 }
 
-// Вызывать после любого РУЧНОГО изменения состояния из интерфейса — иначе
-// свайп/реген откатит ручные правки к состоянию до последнего скана.
-// Снимок, лежащий сейчас в _preRegenSnapshot, снят ПЕРЕД применением
-// последнего сообщения — именно к нему надо возвращаться при свайпе.
-let _snapshotIsPreMessage = false;
-
+// Вызывать после любого РУЧНОГО изменения состояния из интерфейса.
+// Правка записывается в историю на текущую позицию: следующее сообщение
+// будет считаться уже от неё. Свайп того сообщения, после которого правили,
+// правку не сохранит — откат идёт к состоянию ДО него (так договорились).
 export function refreshRegenSnapshot() {
     try {
-        // ВАЖНО: если снимок уже относится к состоянию ДО последнего
-        // сообщения, перезаписывать его нельзя. Иначе свайп восстановит
-        // состояние ПОСЛЕ сообщения и применит теги нового варианта поверх —
-        // недели складывались (28 → скип 5 → 33 → свайп → 38 вместо 33).
-        if (!_snapshotIsPreMessage) {
-            _preRegenSnapshot = snapshotOfChatData();
-            _snapshotChatId = getCurrentChatId();
-        }
         const ctx = getStContext();
         const len = ctx?.chat?.length ?? 0;
         if (len > 0) pushStateHistory(len);
@@ -155,10 +281,7 @@ export function clearRegenState() {
     _isRegeneration = false;
     _preRegenSnapshot = null;
     _snapshotChatId = null;
-    _lastScannedPosition = null;
-    _lastScannedHash = null;
-    _lastScannedHashStripped = null;
-    _snapshotIsPreMessage = false;
+    _snapshotPos = null;
 }
 
 function notifyStateChanged() {
@@ -358,27 +481,6 @@ function notify(html, type) {
     } catch (e) { /* ignore */ }
 }
 
-// Убирает наши теги из msg.mes после скана, сохранив исходник в msg.extra.
-function cleanMessageTags(msg) {
-    if (!msg || !hasOurTags(msg.mes)) return;
-    const raw = msg.mes;
-    const clean = stripOurTags(raw).replace(/\n{3,}/g, '\n\n').trimEnd();
-    if (clean === raw) return;
-    msg.extra = msg.extra || {};
-    msg.extra.lifeweaverRaw = raw;
-    msg.mes = clean;
-    if (Array.isArray(msg.swipes) && typeof msg.swipe_id === 'number' && msg.swipes[msg.swipe_id] !== undefined) {
-        msg.swipes[msg.swipe_id] = clean;
-    }
-}
-
-// Текст для скана: сначала сохранённый исходник (теги уже вырезаны из msg.mes),
-// иначе видимый текст.
-function rawTextOf(msg) {
-    if (!msg) return '';
-    return (msg.extra && msg.extra.lifeweaverRaw) || msg.mes || '';
-}
-
 function stripTagsFromDom(index) {
     try {
         const el = document.querySelector(`.mes[mesid="${index}"] .mes_text`);
@@ -398,6 +500,14 @@ export function getLastScanDebug() {
 function logDebug(entry) {
     _lastDebug = entry;
     console.log('[Lifeweaver] СКАН:', entry);
+}
+
+// Сохранить отметку и чат без применения тегов
+function persistStamp(ctx, msg, idx, swipe, tags, sig) {
+    stampMessage(msg, swipe, tags, sig);
+    saveSettingsDebounced();
+    try { ctx.saveChat?.(); } catch (e) { /* ignore */ }
+    setTimeout(() => stripTagsFromDom(idx), 250);
 }
 
 function runScan(trigger = '?') {
@@ -421,38 +531,57 @@ function runScan(trigger = '?') {
         const isRegen = _isRegeneration && !lastMessage.is_user;
         _isRegeneration = false;
 
-        const text = stripThink(rawTextOf(lastMessage));
-        const textHash = simpleHash(text);
+        const swipe = swipeIdOf(lastMessage);
+        const { text, tags, sig } = composeScanText(lastMessage);
+        const marker = lastMessage.extra?.lifeweaverApplied;
+        const markerMatches = !!marker && (marker.swipe ?? null) === swipe && marker.sig === sig;
+        const chatIdNow = getCurrentChatId();
 
-        if (!isRegen && _lastScannedPosition === positionId &&
-            (textHash === _lastScannedHash || textHash === _lastScannedHashStripped)) {
-            console.log(`[Lifeweaver] скан пропущен (дедуп, повтор той же позиции ${positionId}), триггер: ${trigger}`);
+        // 1. Этот вариант с этими тегами уже применён — повтор события
+        if (markerMatches) {
+            console.log(`[Lifeweaver] скан пропущен: позиция ${positionId}, свайп ${swipe} уже применён (триггер: ${trigger})`);
             return;
         }
 
-        const chatIdNow = getCurrentChatId();
-
-        if (isRegen && _preRegenSnapshot) {
-            if (_snapshotChatId === chatIdNow) {
-                const chat = getChatData();
-                const keptUndo = chat._undo;
-                for (const k of Object.keys(chat)) delete chat[k];
-                Object.assign(chat, structuredClone(_preRegenSnapshot));
-                if (keptUndo) chat._undo = keptUndo;
-                saveSettingsDebounced();
-                console.log('[Lifeweaver] реген: состояние откачено к варианту "до"');
-            }
-            _preRegenSnapshot = null;
-            _snapshotIsPreMessage = false;
+        // 2. Сообщение без отметки, но его позиция уже есть в истории —
+        //    его обработала прошлая версия или прошлая вкладка. Применять
+        //    повторно нельзя (дни сложились бы), просто ставим отметку.
+        if (!isRegen && !marker && hasHistoryAt(positionId)) {
+            persistStamp(ctx, lastMessage, idx, swipe, tags, sig);
+            console.log(`[Lifeweaver] позиция ${positionId} уже была обработана раньше — отмечена без повторного применения (триггер: ${trigger})`);
+            return;
         }
 
+        // 3. Отметка от другого варианта, а в этом тегов нет и генерации не
+        //    было — это просто перелистывание свайпов. Пересчёт под
+        //    перелистывание — этап 2, пока состояние не трогаем.
+        if (!isRegen && marker && tags.length === 0) {
+            console.log(`[Lifeweaver] перелистывание к свайпу ${swipe} на позиции ${positionId} — состояние не трогаю (триггер: ${trigger})`);
+            return;
+        }
+
+        // 4. Вариант сменился — сначала откат к состоянию ДО этого сообщения
+        const isReplacement = isRegen || !!marker;
+        let rollback;
+        if (isReplacement) {
+            rollback = restoreStateBefore(positionId, chatIdNow);
+            if (rollback) {
+                console.log(`[Lifeweaver] замена варианта: откат ${rollback}`);
+            } else {
+                rollback = 'НЕКУДА — применено поверх текущего';
+                const key = `${chatIdNow}|${positionId}`;
+                if (!_warnedPositions.has(key)) {
+                    _warnedPositions.add(key);
+                    notify('<i class="fa-solid fa-triangle-exclamation"></i> Не нашёл состояние до этого ответа — дни могли сложиться. Проверь «День истории» и цикл.', 'warning');
+                }
+                console.warn('[Lifeweaver] замена варианта, но откатиться некуда — состояние «до» не найдено');
+            }
+        }
+
+        // Запасной снимок «до» — на случай, если история подведёт
         _preRegenSnapshot = snapshotOfChatData();
         _snapshotChatId = chatIdNow;
-        _snapshotIsPreMessage = true;
-
-        _lastScannedPosition = positionId;
-        _lastScannedHash = textHash;
-        _lastScannedHashStripped = simpleHash(stripOurTags(text));
+        _snapshotPos = positionId;
 
         // ── Диагностика ДО применения ──
         const described = describeScan(text);
@@ -461,6 +590,9 @@ function runScan(trigger = '?') {
             триггер: trigger,
             чат: chatIdNow || '(не определён!)',
             позиция: positionId,
+            свайп: swipe,
+            режим: isReplacement ? 'замена варианта' : 'новое сообщение',
+            откат: rollback,
             откуда: lastMessage.is_user ? 'сообщение игрока' : 'ответ модели',
             комментариевВТексте: described.commentsFound,
             распознаноТегов: described.recognizedTags,
@@ -483,13 +615,17 @@ function runScan(trigger = '?') {
         }
         if (result) {
             applyScanResult(result, debugEntry);
+        }
+        // Промпт и панель освежаем и после пустого варианта: откат мог
+        // изменить состояние, даже если применять было нечего.
+        if (result || isReplacement) {
             updatePromptInjection();
             notifyStateChanged();
         }
         logDebug(debugEntry);
 
         pushStateHistory(positionId);
-        cleanMessageTags(lastMessage);
+        stampMessage(lastMessage, swipe, tags, sig);
         saveSettingsDebounced();
         try { ctx.saveChat?.(); } catch (e) { /* ignore */ }
         setTimeout(() => stripTagsFromDom(idx), 250);
@@ -519,12 +655,10 @@ export function initAutomation() {
             });
         }
 
-        // Свайп — помечаем реген, чтобы состояние откатилось к "до" старого варианта
-        if (event_types.MESSAGE_SWIPED) {
-            eventSource.on(event_types.MESSAGE_SWIPED, () => markRegeneration());
-        }
-        // GENERATION_STARTED стреляет ДО добавления сообщения — реген определяем
-        // по явному типу генерации из первого аргумента.
+        // Реген/свайп с генерацией определяем по явному типу генерации.
+        // MESSAGE_SWIPED сюда больше НЕ ставит флаг: он стреляет и при простом
+        // перелистывании, флаг повисал и потом срабатывал на чужой тихой
+        // генерации. Перелистывание обрабатывается отдельно на этапе 2.
         if (event_types.GENERATION_STARTED) {
             eventSource.on(event_types.GENERATION_STARTED, (genType, params, dryRun) => {
                 if (dryRun) return;
@@ -553,14 +687,6 @@ export function initAutomation() {
             if (event_types[evt]) {
                 eventSource.on(event_types[evt], () => setTimeout(renderInfoblock, 200));
             }
-        }
-
-        // Редактирование сообщения — текст изменился, дедуп должен протухнуть
-        if (event_types.MESSAGE_EDITED) {
-            eventSource.on(event_types.MESSAGE_EDITED, () => {
-                _lastScannedHash = null;
-                _lastScannedHashStripped = null;
-            });
         }
     } catch (e) {
         console.error('[Lifeweaver] initAutomation error:', e);

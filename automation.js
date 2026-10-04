@@ -45,9 +45,20 @@ import { TEST_LABELS } from './health.js';
 import { renderInfoblock } from './infoblock.js';
 
 export const HISTORY_CAP = 25;
+// Печатается в консоль при загрузке — видно, какая версия реально работает
+// (браузер любит держать старый файл в кэше).
+const AUTOMATION_BUILD = '2.8.1';
 
 // ── Состояние обработки (живёт в памяти, не в настройках) ──
 let _isRegeneration = false;
+// Идёт ли сейчас основная генерация (не тихая чужая). Пока идёт — листание и
+// контрольные проверки не трогают состояние: показанный вариант ещё пишется.
+// Метка времени, а не флаг — чтобы не залипнуть, если Таверна не пришлёт конец.
+let _mainGenSince = 0;
+const MAIN_GEN_STALE_MS = 15 * 60 * 1000;
+function mainGenActive() {
+    return _mainGenSince > 0 && Date.now() - _mainGenSince < MAIN_GEN_STALE_MS;
+}
 // Запасной снимок «до последнего обработанного сообщения» — на случай, если
 // в сохранённой истории нужной позиции почему-то нет.
 let _preRegenSnapshot = null;
@@ -181,6 +192,47 @@ function stampMessage(msg, swipe, tags, sig) {
     }
 }
 
+const OUR_FIELDS = ['lifeweaverTags', 'lifeweaverSwipe', 'lifeweaverApplied', 'lifeweaverRaw'];
+
+function scrubOurFields(extra) {
+    if (!extra || typeof extra !== 'object') return;
+    for (const k of OUR_FIELDS) delete extra[k];
+}
+
+function setVariantIndex(extra, i) {
+    if (!extra || !Array.isArray(extra.lifeweaverTags)) return;
+    extra.lifeweaverSwipe = i;
+    if (extra.lifeweaverApplied) extra.lifeweaverApplied.swipe = i;
+}
+
+// После удаления свайпа: данные каждого варианта переезжают вместе с ним,
+// а записанный в них номер — нет. Переписываем номера по новым местам и
+// сдвигаем журнал «что применено».
+function reindexAfterSwipeDeleted(data) {
+    const ctx = getStContext();
+    const chat = ctx?.chat;
+    if (!chat?.length) return;
+    const messageId = Number(data?.messageId ?? chat.length - 1);
+    const removed = Number(data?.swipeId);
+    if (messageId !== chat.length - 1 || !Number.isInteger(removed)) return;
+    const m = chat[messageId];
+
+    if (Array.isArray(m.swipe_info)) m.swipe_info.forEach((si, i) => setVariantIndex(si?.extra, i));
+    // msg.extra пока ещё от показанного до удаления варианта
+    const shown = m.extra?.lifeweaverSwipe;
+    if (typeof shown === 'number') {
+        if (shown === removed) scrubOurFields(m.extra);
+        else if (shown > removed) setVariantIndex(m.extra, shown - 1);
+    }
+
+    const rec = getChatData()._lastApplied;
+    if (rec && rec.pos === chat.length && typeof rec.swipe === 'number') {
+        if (rec.swipe === removed) rec.swipe = -1;      // применённый вариант удалён — пересчитать
+        else if (rec.swipe > removed) rec.swipe -= 1;
+    }
+    console.log(`[Lifeweaver] удалён свайп ${removed} — номера вариантов переписаны`);
+}
+
 // ═══════════════════════════════════════════
 // ИСТОРИЯ СОСТОЯНИЙ ПО ПОЗИЦИЯМ
 // ═══════════════════════════════════════════
@@ -302,6 +354,7 @@ export function refreshRegenSnapshot() {
 
 export function clearRegenState() {
     _isRegeneration = false;
+    _mainGenSince = 0;
     _preRegenSnapshot = null;
     _snapshotChatId = null;
     _snapshotPos = null;
@@ -548,6 +601,18 @@ function runScan(trigger = '?') {
         const lastMessage = ctx.chat[idx];
         if (!lastMessage || !lastMessage.mes) return;
 
+        // Свайп ещё не существует (генерация нового варианта только началась
+        // или её остановили) либо на его месте заглушка Таверны «...» —
+        // сканировать нечего. Флаг регена не трогаем: он нужен настоящему скану.
+        if (!lastMessage.is_user) {
+            const outOfRange = Array.isArray(lastMessage.swipes) && typeof lastMessage.swipe_id === 'number'
+                && lastMessage.swipe_id >= lastMessage.swipes.length;
+            if (outOfRange || lastMessage.mes === '...') {
+                console.log(`[Lifeweaver] скан пропущен: свайп ещё генерируется (триггер: ${trigger})`);
+                return;
+            }
+        }
+
         migrateLegacyClutch(); // на случай чатов со старым форматом инкубации
 
         const positionId = ctx.chat.length;
@@ -669,6 +734,7 @@ function runScan(trigger = '?') {
 
 export function initAutomation() {
     try {
+        console.log(`[Lifeweaver] автоматика ${AUTOMATION_BUILD} загружена`);
         // Сканер сам не знает имён персонажей — отдаём ему сопоставление
         setWhoResolver(resolveWhoByName);
         if (event_types.MESSAGE_RECEIVED) {
@@ -690,35 +756,64 @@ export function initAutomation() {
         // генерации. Перелистывание обрабатывается отдельно, ниже.
         if (event_types.GENERATION_STARTED) {
             eventSource.on(event_types.GENERATION_STARTED, (genType, params, dryRun) => {
-                if (dryRun) return;
+                if (dryRun || genType === 'quiet') return;
+                _mainGenSince = Date.now();
                 if (genType === 'regenerate' || genType === 'swipe') markRegeneration();
+                // Новый свайп: Таверна оставляет в extra данные ПРЕДЫДУЩЕГО
+                // варианта (их копия уже лежит в его swipe_info) и потом
+                // копирует их в swipe_info нового. Снимаем наши поля, чтобы
+                // чужие теги не приклеились к новому варианту.
+                if (genType === 'swipe') scrubOurFields(getStContext()?.chat?.at(-1)?.extra);
             });
         }
-        // Перелистывание к уже готовому свайпу: пересчитать состояние под него.
-        // Небольшая задержка — Таверна дописывает текст и extra свайпа не
-        // мгновенно. Если это свайп «вправо за край» (сейчас начнётся
-        // генерация нового варианта), показанного свайпа ещё не существует —
-        // пропускаем, им займётся скан после генерации.
-        const onBrowse = (trigger) => setTimeout(() => {
-            try {
-                if (_isRegeneration) return;
-                const m = getStContext()?.chat?.at(-1);
-                if (!m || m.is_user) return;
-                if (Array.isArray(m.swipes) && typeof m.swipe_id === 'number' && m.swipe_id >= m.swipes.length) return;
-                runScan(trigger);
-            } catch (e) { /* ignore */ }
-        }, 60);
+
+        // Пересчитать состояние под показанный вариант, если он не тот, что
+        // применён. Безопасно звать сколько угодно раз: совпало — ничего не
+        // происходит. Пока идёт основная генерация, не лезем.
+        const reconcile = (trigger, delays) => {
+            for (const ms of delays) {
+                setTimeout(() => {
+                    try {
+                        if (mainGenActive()) return;
+                        const m = getStContext()?.chat?.at(-1);
+                        if (!m || m.is_user) return;
+                        runScan(trigger);
+                    } catch (e) { /* ignore */ }
+                }, ms);
+            }
+        };
+
+        // Перелистывание к готовому свайпу. Две попытки: сразу и после
+        // анимации — на случай версии Таверны, где текст меняется позже.
         if (event_types.MESSAGE_SWIPED) {
-            eventSource.on(event_types.MESSAGE_SWIPED, () => onBrowse('MESSAGE_SWIPED'));
+            eventSource.on(event_types.MESSAGE_SWIPED, () => reconcile('MESSAGE_SWIPED', [60, 700]));
         }
-        // Удаление свайпа тоже меняет показанный вариант (есть не во всех версиях ST)
+
+        // Удаление свайпа: номера свайпов после удалённого сдвигаются на один,
+        // а у нас в данных записан номер. Переписываем, потом сверяемся.
         if (event_types.MESSAGE_SWIPE_DELETED) {
-            eventSource.on(event_types.MESSAGE_SWIPE_DELETED, () => onBrowse('MESSAGE_SWIPED'));
+            eventSource.on(event_types.MESSAGE_SWIPE_DELETED, (data) => {
+                try { reindexAfterSwipeDeleted(data); } catch (e) { /* ignore */ }
+                reconcile('MESSAGE_SWIPED', [60, 700]);
+            });
         }
 
         // GENERATION_ENDED — хук для стриминговых свайпов/continue
         if (event_types.GENERATION_ENDED) {
-            eventSource.on(event_types.GENERATION_ENDED, () => runScan('GENERATION_ENDED'));
+            eventSource.on(event_types.GENERATION_ENDED, () => {
+                _mainGenSince = 0;
+                runScan('GENERATION_ENDED');
+            });
+        }
+
+        // Стоп. Если остановленный свайп пуст, Таверна молча возвращает
+        // прежний вариант — без единого события, примерно через секунду
+        // (сначала мигает счётчиком). Поэтому сверяемся сами, с запасом.
+        if (event_types.GENERATION_STOPPED) {
+            eventSource.on(event_types.GENERATION_STOPPED, () => {
+                _mainGenSince = 0;
+                reconcile('ПОСЛЕ СТОПА', [1500, 4000]);
+            });
         }
 
         // Удаление сообщения — откат к снапшоту предыдущей позиции.

@@ -22,9 +22,11 @@ import { getSettings, getChatData, getChildren, getGrownChildren, getCharacterDa
          advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
          applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex,
          applyChildTraits, setTimeOfDay, setRpTime, createUndoCheckpoint, applyStatus,
-         clearResurrectionBlocks, getClutches } from './state.js';
+         clearResurrectionBlocks, getClutches, setCycleDay, setCycleStart, getCurrentChatId } from './state.js';
 import { scanMessage } from './scanner.js';
-import { composeScanText, snapshotOfChatData, clearRegenState, HISTORY_CAP } from './automation.js';
+import { composeScanText, snapshotOfChatData, clearRegenState, HISTORY_CAP,
+         recordedRollsOf, stampVariant } from './automation.js';
+import { seededRandom } from './health.js';
 
 // Текст сообщения для скана — тем же способом, что и живой скан: проза плюс
 // теги ИМЕННО показанного варианта. Раньше брался сырой исходник из extra,
@@ -51,8 +53,17 @@ export function estimateHistory() {
 }
 
 // Полный проход. Возвращает статистику по найденному.
-export function scanFullHistory() {
-    const stats = { processed: 0, days: 0, conceptions: 0, clutches: 0, births: 0, losses: 0, tests: 0, traits: 0 };
+// options.cycleStart = { user?: число, char?: число } — день цикла на начало
+// чата. Без него цикл продолжился бы от ТЕКУЩЕГО дня, и все дни истории
+// легли бы сверху второй раз.
+//
+// Зачатие: если исход броска для варианта сообщения записан — воспроизводим.
+// Если нет (сообщения до 2.9) — бросаем кубик, посеянный от чата, номера
+// сообщения и свайпа: результат может не совпасть с живым, зато одинаков при
+// каждом ретроскане. Такие переброски перечисляются в stats.rerolled, а их
+// исход записывается на сообщение — дальше он воспроизводится.
+export function scanFullHistory(options = {}) {
+    const stats = { processed: 0, days: 0, conceptions: 0, clutches: 0, births: 0, losses: 0, tests: 0, traits: 0, rerolled: [] };
     const ctx = typeof SillyTavern?.getContext === 'function' ? SillyTavern.getContext() : null;
     const chat = ctx?.chat || [];
     if (chat.length === 0) return stats;
@@ -104,7 +115,16 @@ export function scanFullHistory() {
                 healthStatus: 'normal', lastTestResult: null, lastTestRpDay: null,
             };
             c.postpartum = null;
+            // Стартовый день цикла: от него пойдут дни истории
+            // Не передан явно — берём запомненный старт чата (если есть)
+            const start = options.cycleStart?.[who] ?? c.cycleStartDay;
+            if (Number.isInteger(start) && c.designation !== 'beta') {
+                setCycleStart(who, start);
+                setCycleDay(who, start);
+            }
         }
+        const chatIdForSeed = getCurrentChatId() || 'chat';
+        const toStamp = [];
 
         // История позиций пересобирается по ходу прохода: старая описывает
         // состояние ДО ретроскана, и свайп откатил бы к нему — то есть
@@ -152,7 +172,19 @@ export function scanFullHistory() {
                     continue;
                 }
                 if (isChar ? result.charConception : result.conception) {
-                    if (applyConception(who)) stats.conceptions++;
+                    const recorded = recordedRollsOf(msg)[who] || null;
+                    const swipe = typeof msg.swipe_id === 'number' ? msg.swipe_id : 0;
+                    let outcome = null;
+                    const res = applyConception(who, {
+                        forced: recorded,
+                        rnd: seededRandom(`${chatIdForSeed}|${i}|${swipe}|${who}|conception`),
+                        onRoll: (o) => { outcome = o; },
+                    });
+                    if (res === true) stats.conceptions++;
+                    if (!recorded && outcome) {
+                        stats.rerolled.push({ mes: i, who, ...outcome });
+                        toStamp.push({ msg, who, outcome });
+                    }
                 }
                 if (isChar ? result.charSexRevealed : result.sexRevealed) {
                     revealOffspringSex(who, result.revealedSexes);
@@ -202,6 +234,14 @@ export function scanFullHistory() {
         for (const r of recorded) restoreKept(r.state);
         if (savedUndo) chatData._undo = savedUndo;
         chatData._history = recorded.slice(-HISTORY_CAP);
+        // Переброшенные исходы записываем на сообщения — следующий ретроскан
+        // и пересчёт при листании их воспроизведут, а не бросят снова
+        for (const { msg, who, outcome } of toStamp) {
+            stampVariant(msg, { ...recordedRollsOf(msg), [who]: outcome });
+        }
+        if (toStamp.length) {
+            try { ctx.saveChat?.(); } catch (e) { /* ignore */ }
+        }
     } finally {
         s.showNotifications = oldNotify;
         // Снимки в памяти описывают состояние до ретроскана — выбрасываем

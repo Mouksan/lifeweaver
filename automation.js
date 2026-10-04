@@ -6,6 +6,12 @@
 // по позициям, откат при удалении, stripThink перед сканом, исходник тегов
 // в msg.extra, подчистка отрисованного DOM.
 //
+// ── (2.9) Броски зачатия привязаны к варианту сообщения ──
+// Исход броска записывается в extra варианта (lifeweaverRolls). Пересчёт
+// того же варианта — перелистывание, ретроскан — исход воспроизводит, а не
+// бросает кубик заново: иначе листание свайпов включало бы и выключало
+// беременность.
+//
 // ── Главное правило (переделано в 2.7, баг со стаканием дней на свайпах) ──
 // Состояние ПОСЛЕ сообщения на позиции P = состояние ДО него + теги ЭТОГО
 // варианта сообщения. Ровно один раз, сколько бы событий Таверна ни прислала.
@@ -47,7 +53,7 @@ import { renderInfoblock } from './infoblock.js';
 export const HISTORY_CAP = 25;
 // Печатается в консоль при загрузке — видно, какая версия реально работает
 // (браузер любит держать старый файл в кэше).
-const AUTOMATION_BUILD = '2.8.1';
+const AUTOMATION_BUILD = '2.9.0';
 
 // ── Состояние обработки (живёт в памяти, не в настройках) ──
 let _isRegeneration = false;
@@ -158,7 +164,7 @@ export function composeScanText(msg) {
 
 // Записывает на сообщение (и в его свайп): какие теги сняты, с какого
 // варианта, что они применены. Убирает теги из видимого текста.
-function stampMessage(msg, swipe, tags, sig) {
+function stampMessage(msg, swipe, tags, sig, rolls) {
     if (!msg) return;
     msg.extra = msg.extra || {};
     const clean = cleanText(msg.mes);
@@ -167,6 +173,7 @@ function stampMessage(msg, swipe, tags, sig) {
         lifeweaverSwipe: swipe,
         lifeweaverApplied: { swipe, sig },
     };
+    const hasRolls = rolls && typeof rolls === 'object' && Object.keys(rolls).length > 0;
     // Сырой текст — для ретроскана и совместимости со старыми версиями
     const raw = tags.length ? `${clean}\n${tags.join('\n')}` : null;
 
@@ -174,6 +181,8 @@ function stampMessage(msg, swipe, tags, sig) {
         Object.assign(extra, structuredClone(fields));
         if (raw) extra.lifeweaverRaw = raw;
         else delete extra.lifeweaverRaw; // иначе остался бы исходник чужого варианта
+        if (hasRolls) extra.lifeweaverRolls = structuredClone(rolls);
+        else delete extra.lifeweaverRolls;
     };
     write(msg.extra);
     // Тот же набор — в swipe_info этого свайпа: при перелистывании Таверна
@@ -192,7 +201,19 @@ function stampMessage(msg, swipe, tags, sig) {
     }
 }
 
-const OUR_FIELDS = ['lifeweaverTags', 'lifeweaverSwipe', 'lifeweaverApplied', 'lifeweaverRaw'];
+const OUR_FIELDS = ['lifeweaverTags', 'lifeweaverSwipe', 'lifeweaverApplied', 'lifeweaverRaw', 'lifeweaverRolls'];
+
+// Записанные исходы бросков показанного варианта: { user?: {...}, char?: {...} }
+export function recordedRollsOf(msg) {
+    const r = variantExtraOf(msg)?.lifeweaverRolls;
+    return r && typeof r === 'object' ? structuredClone(r) : {};
+}
+
+// Для ретроскана: проставить на сообщение отметки варианта и исходы бросков
+export function stampVariant(msg, rolls) {
+    const { tags, sig } = composeScanText(msg);
+    stampMessage(msg, swipeIdOf(msg), tags, sig, rolls);
+}
 
 function scrubOurFields(extra) {
     if (!extra || typeof extra !== 'object') return;
@@ -368,7 +389,7 @@ function notifyStateChanged() {
 
 // Применяет разобранный результат скана. Порядок значим: потеря беременности —
 // раньше остальных событий этого персонажа (взаимоисключающе с кладкой/родами).
-function applyScanResult(result, debug = null) {
+function applyScanResult(result, debug = null, rolls = null) {
     if (!result) return;
     const log = (msg) => { if (debug) debug.применено.push(msg); };
 
@@ -441,11 +462,18 @@ function applyScanResult(result, debug = null) {
             continue;
         }
         if (conceptionTag) {
-            const res = applyConception(who);
+            // Исход уже разыгран для этого варианта — воспроизводим его
+            const forced = rolls?.recorded?.[who] || null;
+            const res = applyConception(who, {
+                forced,
+                onRoll: (o) => { if (rolls) rolls.made[who] = o; },
+            });
+            const replay = forced ? ' (повтор записанного броска)' : '';
             if (res === true) {
                 const hidden = getSettings().hiddenPregnancy;
-                log(`${who}: зачатие применено`);
-                notify(hidden
+                log(`${who}: зачатие применено${replay}`);
+                // Повтор — это пересчёт уже случившегося, а не новое событие
+                if (!forced) notify(hidden
                     ? '<i class="fa-solid fa-user-secret"></i> Зачатие произошло — но он пока не знает'
                     : '<i class="fa-solid fa-check"></i> Зачатие произошло!', 'success');
             } else if (res && typeof res === 'object') {
@@ -454,8 +482,8 @@ function applyScanResult(result, debug = null) {
                 const detail = res.reason
                     ? `сработала защита (${res.reason})`
                     : `${res.roll} из ${res.chance}%`;
-                log(`${who}: зачатия не произошло — ${detail}`);
-                notify(`<i class="fa-solid fa-dice"></i> Зачатия не произошло · ${detail}`, 'info');
+                log(`${who}: зачатия не произошло — ${detail}${replay}`);
+                if (!forced) notify(`<i class="fa-solid fa-dice"></i> Зачатия не произошло · ${detail}`, 'info');
             } else {
                 const c = getCharacterData(who);
                 const why = !c.canCarry ? 'не отмечен носителем'
@@ -580,7 +608,7 @@ function logDebug(entry) {
 
 // Сохранить отметку и чат без применения тегов
 function persistStamp(ctx, msg, idx, swipe, tags, sig) {
-    stampMessage(msg, swipe, tags, sig);
+    stampMessage(msg, swipe, tags, sig, recordedRollsOf(msg));
     saveSettingsDebounced();
     try { ctx.saveChat?.(); } catch (e) { /* ignore */ }
     setTimeout(() => stripTagsFromDom(idx), 250);
@@ -706,9 +734,14 @@ function runScan(trigger = '?') {
             console.warn('[Lifeweaver] адресат тега не опознан:', result.unresolved);
             notify(`<i class="fa-solid fa-question"></i> Не понял, к кому относится: ${result.unresolved.join(', ')}`, 'warning');
         }
+        // Записанные броски этого варианта + те, что будут сделаны сейчас.
+        // Неиспользованные записанные сохраняем: персонаж мог быть уже
+        // беременен при этом пересчёте, а при другом — нет.
+        const rolls = { recorded: ve?.lifeweaverRolls || {}, made: {} };
         if (result) {
-            applyScanResult(result, debugEntry);
+            applyScanResult(result, debugEntry, rolls);
         }
+        const rollsToStore = { ...rolls.recorded, ...rolls.made };
         // Промпт и панель освежаем и после пустого варианта: откат мог
         // изменить состояние, даже если применять было нечего.
         if (result || isReplacement) {
@@ -719,7 +752,7 @@ function runScan(trigger = '?') {
 
         setLastApplied(positionId, swipe, sig);
         pushStateHistory(positionId);
-        stampMessage(lastMessage, swipe, tags, sig);
+        stampMessage(lastMessage, swipe, tags, sig, rollsToStore);
         saveSettingsDebounced();
         try { ctx.saveChat?.(); } catch (e) { /* ignore */ }
         setTimeout(() => stripTagsFromDom(idx), 250);

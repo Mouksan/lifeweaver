@@ -5,7 +5,7 @@
 import { extensionName, UNIVERSE_PRESETS, UNIVERSE_ORDER, SECTIONS, summarizePreset, getTotalWeeks, CONTRACEPTION_TYPES, buildCustomPreset, termsOf } from './config.js';
 import {
     getSettings, getActiveUniverse, setActiveUniverse, resetChatIdCache,
-    getCharacterData, setDesignation, setCycleDay, getCycleSettings, carrierDisplayName,
+    getCharacterData, setDesignation, setCycleDay, setCycleDayManual, getCycleStartGuess, getCycleSettings, carrierDisplayName,
     setCanCarry, startPregnancy, endPregnancy, setPregnancyWeeks, setOffspringCount,
     applyLayClutch, currentStageMaxWeeks,
     completeBirth, getChildren, getGrownChildren, updateChildField, archiveChild, deleteChild, restoreChild,
@@ -691,7 +691,8 @@ function bindCycleCardEvents() {
     });
     $('.lw-day-input').on('change', function () {
         const who = $(this).data('who');
-        setCycleDay(who, $(this).val());
+        // Ручная правка: пока история не началась, она же — стартовый день
+        setCycleDayManual(who, $(this).val());
         saveSettings();
         renderContent();
     });
@@ -1836,6 +1837,7 @@ function renderSettingsSection() {
         <div class="lw-settings-group">
             <h3 class="lw-content-subtitle">Пересканировать историю</h3>
             <p class="lw-placeholder-note">Проходит по всему чату с начала и восстанавливает состояние из тегов — на случай, если расширение подключили к уже идущей истории или данные разъехались. Настройки персонажей, выросшие дети и внешность родителей сохраняются. Действие отменяемо стрелкой в шапке.</p>
+            ${renderRescanStarts()}
             <div id="lw_rescan_box" class="lw-debug-box"></div>
             <div class="lw-child-actions" style="margin-top: 10px;">
                 <button type="button" class="lw-btn lw-btn-muted" id="lw_rescan_check">Что найдётся</button>
@@ -2079,15 +2081,19 @@ function bindSettingsEvents() {
 
     $('#lw_rescan_run').on('click', () => {
         const est = estimateHistory();
-        if (!confirm(`Пересканировать историю?\n\nСообщений с тегами: ${est.tagged} из ${est.total}.\nТекущее состояние будет пересобрано заново.\n\nОтменить можно стрелкой в шапке.`)) return;
-        const st = scanFullHistory();
+        const starts = readRescanStarts();
+        const startsLine = Object.entries(starts)
+            .map(([who, d]) => `${carrierDisplayName(who)}: день ${d}`).join(', ');
+        if (!confirm(`Пересканировать историю?\n\nСообщений с тегами: ${est.tagged} из ${est.total}.\n${startsLine ? `Цикл на начало чата — ${startsLine}.\n` : ''}Текущее состояние будет пересобрано заново.\n\nОтменить можно стрелкой в шапке.`)) return;
+        const st = scanFullHistory({ cycleStart: starts });
         saveSettings();
         $('#lw_rescan_box').html(`
             <div><b>Готово.</b> Обработано сообщений с тегами: ${st.processed}</div>
             <div class="lw-dim" style="margin-top:6px;">
                 прошло дней: ${st.days} · зачатий: ${st.conceptions} · кладок: ${st.clutches} ·
                 рождений: ${st.births} · потерь: ${st.losses} · тестов: ${st.tests}
-            </div>`);
+            </div>
+            ${renderRerolledReport(st.rerolled)}`);
         showNotification(`<i class="fa-solid fa-clock-rotate-left"></i> История пересканирована: ${st.processed} событийных сообщений`, 'success');
         renderUniverseTabs();
         refreshUndoButton();
@@ -2276,3 +2282,55 @@ jQuery(async () => {
         console.error('[Lifeweaver] Ошибка загрузки:', e);
     }
 });
+
+
+// ─── Ретроскан: день цикла на начало чата ───
+// Кто из пары живёт с циклом в текущей вселенной (беты и вселенные без
+// цикла — без поля).
+function rescanCycleCarriers() {
+    if (resolvePreset(getActiveUniverse()).cycleSystem !== 'abo') return [];
+    return ['user', 'char'].filter(who => getCharacterData(who).designation !== 'beta');
+}
+
+function renderRescanStarts() {
+    const whos = rescanCycleCarriers();
+    if (!whos.length) return '';
+    const rows = whos.map(who => {
+        const g = getCycleStartGuess(who);
+        const kind = getCharacterData(who).designation === 'alpha' ? 'гона' : 'течки';
+        const hint = g.source === 'stored'
+            ? 'запомнено при старте чата'
+            : 'прикинуто: сегодняшний день минус дни истории. Если в истории была беременность, цикл тогда стоял — подправь';
+        return `
+            <label>${escapeHtml(carrierDisplayName(who))}: день цикла ${kind} на начало чата (1–${g.len})
+                <input type="number" class="lw-input lw-rescan-start" data-who="${who}" min="1" max="${g.len}" value="${g.day}">
+                <span class="lw-dim" style="font-size:0.85em;">${hint}</span>
+            </label>`;
+    }).join('');
+    return `<div class="lw-settings-numeric-grid" style="margin-bottom:10px;">${rows}</div>`;
+}
+
+function readRescanStarts() {
+    const out = {};
+    $('.lw-rescan-start').each(function () {
+        const v = parseInt($(this).val());
+        if (Number.isInteger(v) && v > 0) out[$(this).data('who')] = v;
+    });
+    return out;
+}
+
+function renderRerolledReport(list) {
+    if (!list?.length) return '';
+    const lines = list.map(r => {
+        const name = escapeHtml(carrierDisplayName(r.who));
+        const how = r.success ? 'получилось'
+            : r.reason ? `не вышло — сработала защита (${escapeHtml(r.reason)})`
+            : 'не вышло';
+        const dice = r.chance != null && r.roll != null && !r.reason ? ` · шанс ${r.chance}%, бросок ${r.roll}` : '';
+        return `<div>сообщение <b>#${r.mes}</b> — ${name}: ${how}${dice}</div>`;
+    }).join('');
+    return `
+        <div style="margin-top:8px;"><b>Зачатие разыграно заново</b> (в этих сообщениях исход раньше не записывался):</div>
+        ${lines}
+        <div class="lw-dim" style="margin-top:4px;">Теперь исход записан и при следующих пересканах повторится. Лишнюю беременность можно убрать кнопкой, как обычно.</div>`;
+}

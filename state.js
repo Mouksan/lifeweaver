@@ -138,6 +138,9 @@ export function getChatData() {
 
     if (!s.chatData[chatId]) {
         s.chatData[chatId] = cloneDefault(defaultChatData);
+        // Новый чат: шаблон ставит обоим день 1, то есть первый день
+        // течки/гона. Бросаем случайный спокойный день и запоминаем как старт.
+        seedCycleStarts(s.chatData[chatId]);
     }
     ensureDefaults(s.chatData[chatId], defaultChatData);
     return s.chatData[chatId];
@@ -157,16 +160,88 @@ export function getCharacterData(who) {
     const chat = getChatData();
     if (!chat.characters) chat.characters = {};
     if (!chat.characters[who]) {
-        chat.characters[who] = cloneDefault(
-            who === 'char' ? { designation: 'alpha', cycleDay: 1 } : { designation: 'omega', cycleDay: 1 },
-        );
+        const designation = who === 'char' ? 'alpha' : 'omega';
+        // Новый чат начинается со случайного СПОКОЙНОГО дня цикла, а не с
+        // первого дня течки/гона. Старт запоминается — от него ретроскан
+        // потом отсчитывает дни истории.
+        const start = rollCalmCycleDay(designation);
+        chat.characters[who] = cloneDefault({
+            designation, cycleDay: start, cycleStartDay: start, cycleStartAuto: true,
+        });
     }
     ensureDefaults(chat.characters[who], defaultCharacterData);
     return chat.characters[who];
 }
 
 export function setDesignation(who, designation) {
-    getCharacterData(who).designation = designation;
+    const character = getCharacterData(who);
+    character.designation = designation;
+    // История ещё не началась, а день был выброшен автоматически — бросаем
+    // заново под новый тип: спокойный день альфы мог оказаться течкой омеги.
+    if (getRpDay() === 0 && character.cycleStartAuto && designation !== 'beta') {
+        const start = rollCalmCycleDay(designation);
+        character.cycleDay = start;
+        character.cycleStartDay = start;
+    }
+}
+
+function seedCycleStarts(chat) {
+    for (const who of ['user', 'char']) {
+        const c = chat?.characters?.[who];
+        if (!c || c.cycleStartDay !== undefined) continue;
+        const start = rollCalmCycleDay(c.designation);
+        c.cycleDay = start;
+        c.cycleStartDay = start;
+        c.cycleStartAuto = true;
+    }
+}
+
+// Случайный день цикла вне течки/гона и их «хвостов»: только фаза normal
+export function rollCalmCycleDay(designation, rnd = Math.random) {
+    const cfg = getCycleSettings();
+    const isAlpha = designation === 'alpha';
+    const len = isAlpha ? cfg.rutCycleLength : cfg.heatCycleLength;
+    const calm = [];
+    for (let d = 1; d <= len; d++) {
+        const ph = isAlpha ? getRutPhase(d, cfg) : getHeatPhase(d, cfg);
+        if (ph.phase === 'normal') calm.push(d);
+    }
+    if (!calm.length) return 1;
+    return calm[Math.floor(rnd() * calm.length)];
+}
+
+// Ручная правка дня цикла из панели. Пока история не сдвинулась ни на день,
+// это и есть правда о начале чата — запоминаем как стартовый день.
+export function setCycleDayManual(who, day) {
+    setCycleDay(who, day);
+    if (getRpDay() === 0) {
+        const character = getCharacterData(who);
+        character.cycleStartDay = character.cycleDay;
+        character.cycleStartAuto = false;
+    }
+}
+
+// Стартовый день цикла для ретроскана: запомненный, а если чат старше этой
+// функции — прикидка «сегодняшний день минус дни истории». Прикидка не знает
+// про паузы цикла (беременность), поэтому её надо показывать игроку.
+export function getCycleStartGuess(who) {
+    const character = getCharacterData(who);
+    const cfg = getCycleSettings();
+    const len = character.designation === 'alpha' ? cfg.rutCycleLength : cfg.heatCycleLength;
+    if (Number.isInteger(character.cycleStartDay)) {
+        return { day: Math.max(1, Math.min(len, character.cycleStartDay)), source: 'stored', len };
+    }
+    const back = (((character.cycleDay - 1 - (getRpDay() % len)) % len) + len) % len + 1;
+    return { day: back, source: 'computed', len };
+}
+
+export function setCycleStart(who, day) {
+    const character = getCharacterData(who);
+    const cfg = getCycleSettings();
+    const len = character.designation === 'alpha' ? cfg.rutCycleLength : cfg.heatCycleLength;
+    character.cycleStartDay = Math.max(1, Math.min(len, parseInt(day) || 1));
+    character.cycleStartAuto = false;
+    return character.cycleStartDay;
 }
 
 export function getCycleSettings() {
@@ -1334,7 +1409,11 @@ export function rollConception(who, rnd = Math.random) {
     return { chance, roll, success: roll <= chance, reason: null };
 }
 
-export function applyConception(who) {
+// opts.forced — уже известный исход броска ({ success, chance, roll, reason }):
+//   при пересчёте варианта и ретроскане бросок не перебрасывается, а
+//   воспроизводится. opts.rnd — свой генератор вместо Math.random.
+//   opts.onRoll(outcome) — сообщает исход, чтобы его можно было записать.
+export function applyConception(who, opts = {}) {
     const character = getCharacterData(who);
     if (!character.canCarry) return false;
     if (character.pregnancy?.isPregnant) return false;
@@ -1344,7 +1423,13 @@ export function applyConception(who) {
 
     // Тег от модели означает «был акт», а не «наступила беременность» —
     // исход решает бросок.
-    const result = rollConception(who);
+    const forced = opts.forced && typeof opts.forced.success === 'boolean' ? opts.forced : null;
+    const result = forced
+        ? { ...forced, replayed: true }
+        : rollConception(who, typeof opts.rnd === 'function' ? opts.rnd : Math.random);
+    if (typeof opts.onRoll === 'function') {
+        opts.onRoll({ success: !!result.success, chance: result.chance ?? null, roll: result.roll ?? null, reason: result.reason ?? null });
+    }
     if (!result.success) return result;
 
     startPregnancy(who);

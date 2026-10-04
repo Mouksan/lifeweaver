@@ -22,10 +22,10 @@ import { getSettings, getChatData, getChildren, getGrownChildren, getCharacterDa
          advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
          applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex,
          applyChildTraits, setTimeOfDay, setRpTime, createUndoCheckpoint, applyStatus,
-         clearResurrectionBlocks, getClutches, setCycleDay, setCycleStart, getCurrentChatId } from './state.js';
+         clearResurrectionBlocks, getClutches, setCycleDay, setCycleStart } from './state.js';
 import { scanMessage } from './scanner.js';
 import { composeScanText, snapshotOfChatData, clearRegenState, HISTORY_CAP,
-         recordedRollsOf, stampVariant } from './automation.js';
+         recordedRollsOf, stampVariant, variantSeedBase } from './automation.js';
 import { seededRandom } from './health.js';
 
 // Текст сообщения для скана — тем же способом, что и живой скан: проза плюс
@@ -123,7 +123,6 @@ export function scanFullHistory(options = {}) {
                 setCycleDay(who, start);
             }
         }
-        const chatIdForSeed = getCurrentChatId() || 'chat';
         const toStamp = [];
 
         // История позиций пересобирается по ходу прохода: старая описывает
@@ -173,11 +172,13 @@ export function scanFullHistory(options = {}) {
                 }
                 if (isChar ? result.charConception : result.conception) {
                     const recorded = recordedRollsOf(msg)[who] || null;
-                    const swipe = typeof msg.swipe_id === 'number' ? msg.swipe_id : 0;
+                    const seedBase = variantSeedBase(msg, i);
                     let outcome = null;
                     const res = applyConception(who, {
                         forced: recorded,
-                        rnd: seededRandom(`${chatIdForSeed}|${i}|${swipe}|${who}|conception`),
+                        rnd: seededRandom(`${seedBase}|${who}|conception`),
+                        // Тем же зерном, что живой скан: те же малыши
+                        detailRnd: seededRandom(`${seedBase}|${who}|details`),
                         onRoll: (o) => { outcome = o; },
                     });
                     if (res === true) stats.conceptions++;

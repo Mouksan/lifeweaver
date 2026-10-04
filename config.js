@@ -145,11 +145,11 @@ export function buildCustomPreset(cp) {
 export const OFFSPRING_STEP_CHANCE = 0.16;
 export const OFFSPRING_STEP_DECAY = 0.3;
 
-export function rollOffspringCount(range) {
+export function rollOffspringCount(range, rnd = Math.random) {
     let count = range.min;
     let chance = OFFSPRING_STEP_CHANCE;
     while (count < range.max) {
-        if (Math.random() < chance) {
+        if (rnd() < chance) {
             count++;
             chance *= OFFSPRING_STEP_DECAY;
         } else {

@@ -326,15 +326,19 @@ export function getActivePreset() {
     return getPreset(universeId);
 }
 
-export function startPregnancy(who) {
+// opts.rnd — генератор для всех бросков беременности (число, пол, будущие
+// осложнения). По тегу он посеян от сообщения: пересчёт того же варианта —
+// листание, ретроскан — даёт тех же малышей, а не новый набор.
+export function startPregnancy(who, opts = {}) {
+    const rnd = typeof opts.rnd === 'function' ? opts.rnd : Math.random;
     const preset = getActivePreset();
     const range = preset.offspringRange || { min: 1, max: 1 };
-    const count = rollOffspringCount(range);
+    const count = rollOffspringCount(range, rnd);
     const character = getCharacterData(who);
     // Пол разыгрывается сразу, но остаётся скрытым до раскрытия — иначе
     // модель не сможет «узнать» его на УЗИ, он будет меняться каждый раз.
     const offspringSex = [];
-    for (let i = 0; i < count; i++) offspringSex.push(Math.random() < 0.5 ? 'M' : 'F');
+    for (let i = 0; i < count; i++) offspringSex.push(rnd() < 0.5 ? 'M' : 'F');
     const total = getTotalWeeks(preset, getSettings().pregnancyDuration);
     character.pregnancy = {
         ...cloneDefault(defaultPregnancyData),
@@ -343,7 +347,7 @@ export function startPregnancy(who) {
         offspringSex,
         // Судьба беременности определяется сразу, как у вдохновителя:
         // каждое осложнение либо выпадет на своей неделе, либо не выпадет вовсе.
-        _plannedComplications: rollPlannedComplications(bodyPoolFor(preset), total),
+        _plannedComplications: rollPlannedComplications(bodyPoolFor(preset), total, rnd),
     };
 
     // Началась НОВАЯ беременность — блоки анти-воскрешения от предыдущей
@@ -1413,6 +1417,7 @@ export function rollConception(who, rnd = Math.random) {
 //   при пересчёте варианта и ретроскане бросок не перебрасывается, а
 //   воспроизводится. opts.rnd — свой генератор вместо Math.random.
 //   opts.onRoll(outcome) — сообщает исход, чтобы его можно было записать.
+//   opts.detailRnd — генератор для подробностей беременности (см. startPregnancy).
 export function applyConception(who, opts = {}) {
     const character = getCharacterData(who);
     if (!character.canCarry) return false;
@@ -1432,7 +1437,7 @@ export function applyConception(who, opts = {}) {
     }
     if (!result.success) return result;
 
-    startPregnancy(who);
+    startPregnancy(who, { rnd: typeof opts.detailRnd === 'function' ? opts.detailRnd : undefined });
     return true;
 }
 

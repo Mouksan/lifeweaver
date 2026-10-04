@@ -573,7 +573,7 @@ function renderCycleSection(preset) {
                 <p>В этой вселенной нет течки и гона — зачатие не завязано на цикл.</p>
             </div>
             <h3 class="lw-content-subtitle">Контрацепция</h3>
-            <p class="lw-placeholder-note">Кубик не бросается: процент уходит модели, и она решает по сюжету, подвела защита или нет.</p>
+            <p class="lw-placeholder-note">Защиту проверяет кубик: при зачатии сначала бросок на надёжность средства, и только если оно подвело, бросается само зачатие.</p>
             <div class="lw-cycle-grid">${cards}</div>
         `);
         $('.lw-contraception-select').on('change', function () {
@@ -587,7 +587,7 @@ function renderCycleSection(preset) {
     const cfg = getCycleSettings();
     $('#lw_content').html(`
         <h2 class="lw-content-title">Цикл</h2>
-        <p class="lw-placeholder-note">Супрессанты глушат течку или гон, контрацепция влияет на зачатие. Кубик не бросается: проценты уходят модели, и она решает по сюжету, подвело ли средство.</p>
+        <p class="lw-placeholder-note">Супрессанты глушат течку или гон. Защиту проверяет кубик: при зачатии сначала бросок на надёжность средства, и только если оно подвело, бросается само зачатие.</p>
         <div class="lw-cycle-grid" id="lw_cycle_grid"></div>
     `);
     const $grid = $('#lw_cycle_grid');

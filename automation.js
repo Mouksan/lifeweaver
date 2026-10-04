@@ -47,13 +47,13 @@ import {
 import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan, setWhoResolver } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
 import { showNotification, showBirthDialog, showGraduationDialog } from './notifications.js';
-import { TEST_LABELS } from './health.js';
+import { TEST_LABELS, seededRandom } from './health.js';
 import { renderInfoblock } from './infoblock.js';
 
 export const HISTORY_CAP = 25;
 // Печатается в консоль при загрузке — видно, какая версия реально работает
 // (браузер любит держать старый файл в кэше).
-const AUTOMATION_BUILD = '2.9.0';
+const AUTOMATION_BUILD = '2.9.1';
 
 // ── Состояние обработки (живёт в памяти, не в настройках) ──
 let _isRegeneration = false;
@@ -202,6 +202,14 @@ function stampMessage(msg, swipe, tags, sig, rolls) {
 }
 
 const OUR_FIELDS = ['lifeweaverTags', 'lifeweaverSwipe', 'lifeweaverApplied', 'lifeweaverRaw', 'lifeweaverRolls'];
+
+// Основа «зерна» для кубиков варианта сообщения. Время отправки варианта
+// не меняется ни при перелистывании, ни при удалении других сообщений;
+// номер — запасной вариант для сообщений без времени. Одинаковое зерно у
+// живого скана и ретроскана — поэтому они получают одних и тех же малышей.
+export function variantSeedBase(msg, index) {
+    return `${msg?.send_date ?? `#${index}`}|${swipeIdOf(msg) ?? 0}`;
+}
 
 // Записанные исходы бросков показанного варианта: { user?: {...}, char?: {...} }
 export function recordedRollsOf(msg) {
@@ -467,6 +475,7 @@ function applyScanResult(result, debug = null, rolls = null) {
             const res = applyConception(who, {
                 forced,
                 onRoll: (o) => { if (rolls) rolls.made[who] = o; },
+                detailRnd: rolls?.seedBase ? seededRandom(`${rolls.seedBase}|${who}|details`) : undefined,
             });
             const replay = forced ? ' (повтор записанного броска)' : '';
             if (res === true) {
@@ -737,7 +746,7 @@ function runScan(trigger = '?') {
         // Записанные броски этого варианта + те, что будут сделаны сейчас.
         // Неиспользованные записанные сохраняем: персонаж мог быть уже
         // беременен при этом пересчёте, а при другом — нет.
-        const rolls = { recorded: ve?.lifeweaverRolls || {}, made: {} };
+        const rolls = { recorded: ve?.lifeweaverRolls || {}, made: {}, seedBase: variantSeedBase(lastMessage, idx) };
         if (result) {
             applyScanResult(result, debugEntry, rolls);
         }

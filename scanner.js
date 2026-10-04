@@ -43,6 +43,35 @@ const COMMENT_RE = /<!--[\s\S]*?-->/g;
 
 // Разбирает текст на отдельные HTML-комментарии и для тех, что содержат
 // один из наших тегов, возвращает {name, isChar, value, raw}.
+// ─── Кому адресован тег ───
+// Модель адресует по-разному: `:CHAR`, настоящим именем ({{char}} в промпте
+// разворачивается в имя, и она копирует именно его), иногда своим кастомным.
+// Понимаем все варианты, иначе тег уезжает не тому: именно так зачатие
+// омеги-{{char}} пыталось применяться к альфе-{{user}} и отклонялось.
+//
+// resolveWho принимается извне (из state.js), чтобы сканер остался чистым
+// и тестируемым без SillyTavern.
+let _whoResolver = null;
+
+export function setWhoResolver(fn) {
+    _whoResolver = typeof fn === 'function' ? fn : null;
+}
+
+function resolveTarget(payload) {
+    const raw = String(payload || '').replace(/^[:\s]+/, '').trim();
+    if (!raw) return 'user';               // без адреса — юзер, как раньше
+    // Чисто числовая нагрузка — это не адрес, а значение (DAYS_PASSED:14)
+    if (/^\d+$/.test(raw)) return 'user';
+    const upper = raw.toUpperCase();
+    if (upper === 'CHAR') return 'char';
+    if (upper === 'USER') return 'user';
+    if (_whoResolver) {
+        const found = _whoResolver(raw);
+        if (found) return found;
+    }
+    return null;                            // имя не опознано
+}
+
 function extractTagComments(text) {
     if (!text) return [];
     const comments = text.match(COMMENT_RE) || [];
@@ -52,9 +81,16 @@ function extractTagComments(text) {
         if (!m) continue;
         const payload = m[3] || '';
         const num = payload.match(/(\d+)/);
+        // Теги без адресата: относятся к сцене целиком, не к персонажу
+        const NON_ADDRESSED = ['DAYS_PASSED', 'TIME_OF_DAY', 'CHILD_TRAITS', 'RP_STATUS'];
+        const tagName = m[1].toUpperCase();
+        const target = NON_ADDRESSED.includes(tagName) ? 'user'
+            : m[2] ? 'char'
+            : resolveTarget(payload);
         found.push({
-            name: m[1].toUpperCase(),
-            isChar: !!m[2],
+            name: tagName,
+            isChar: target === 'char',
+            target,                 // 'user' | 'char' | null (не опознан)
             value: num ? parseInt(num[1]) : null,
             payload,
             raw,
@@ -126,8 +162,9 @@ const ABORTION_CONTEXT_RE = /(аборт|abortion|прерыв|клиник|пр
 // оставлять висячие запятые и одинарные кавычки, из-за чего строгий JSON.parse
 // падает и данные теряются. Тег живёт вне общей схемы KNOWN_TAGS, потому что
 // несёт полезную нагрузку в фигурных скобках, а не просто флаг.
-const BABY_TRAITS_RE = /<!--\s*\[BABY_TRAITS(?::CHAR)?:\s*(\{[\s\S]*?\})\s*\]\s*-->/i;
-const BABY_TRAITS_CHAR_RE = /<!--\s*\[BABY_TRAITS:CHAR:\s*(\{[\s\S]*?\})\s*\]\s*-->/i;
+// Между именем тега и JSON может стоять адресат: [BABY_TRAITS:Veyne:{...}].
+// Захватываем всё до скобки отдельно, чтобы определить, кому адресовано.
+const BABY_TRAITS_RE = /<!--\s*\[BABY_TRAITS([^{\]]*?):?\s*(\{[\s\S]*?\})\s*\]\s*-->/gi;
 
 function safeParseJson(raw) {
     try {
@@ -173,25 +210,41 @@ export function scanChildTraits(text) {
 
 export function scanBabyTraits(text, forChar = false) {
     if (!text) return null;
-    const m = text.match(forChar ? BABY_TRAITS_CHAR_RE : BABY_TRAITS_RE);
-    if (!m) return null;
-    // Для юзерского варианта не хватаем :CHAR-версию
-    if (!forChar && /\[BABY_TRAITS:CHAR/i.test(m[0])) return null;
-    const json = safeParseJson(m[1]);
-    if (!json) return null;
-    if (Array.isArray(json.babies)) return json;
-    if (Array.isArray(json)) return { babies: json };
-    return { babies: [json] };
+    const want = forChar ? 'char' : 'user';
+    BABY_TRAITS_RE.lastIndex = 0;
+    let m;
+    while ((m = BABY_TRAITS_RE.exec(text)) !== null) {
+        const addr = String(m[1] || '').replace(/^[:\s]+/, '').trim();
+        const upper = addr.toUpperCase();
+        const target = !addr ? 'user'
+            : upper === 'CHAR' ? 'char'
+            : upper === 'USER' ? 'user'
+            : (_whoResolver ? _whoResolver(addr) : null);
+        if (target !== want) continue;
+        const json = safeParseJson(m[2]);
+        if (!json) continue;
+        if (Array.isArray(json.babies)) return json;
+        if (Array.isArray(json)) return { babies: json };
+        return { babies: [json] };
+    }
+    return null;
 }
 
 // Полы, названные моделью в теге SEX_REVEAL — например [SEX_REVEAL:M,F]
-const SEX_REVEAL_VALUES_RE = /\[SEX_REVEAL(?::CHAR)?[:\s]+([MFмждMFД,\s]+)\]/i;
+// Полы берём из ПОСЛЕДНЕЙ секции тега: между именем тега и ними может
+// стоять адресат — [SEX_REVEAL:Veyne:M,F]. Раньше регулярка ждала полы
+// сразу после :CHAR и на имени посередине ломалась.
+const SEX_REVEAL_RE = /\[SEX_REVEAL([^\]]*)\]/i;
 
 export function extractRevealedSexes(text) {
     if (!text) return null;
-    const m = text.match(SEX_REVEAL_VALUES_RE);
+    const m = text.match(SEX_REVEAL_RE);
     if (!m) return null;
-    const parts = m[1].split(/[,\s]+/).filter(Boolean);
+    const sections = String(m[1] || '').split(':').filter(s => s.trim());
+    const last = sections[sections.length - 1] || '';
+    // В последней секции должны быть только буквы полов и разделители
+    if (!/^[MFМЖДmfмжд,\s]+$/.test(last)) return null;
+    const parts = last.split(/[,\s]+/).filter(Boolean);
     const sexes = parts.map(p => {
         const c = p.trim().toUpperCase();
         if (c === 'M' || c === 'М') return 'M';
@@ -271,7 +324,9 @@ export function scanMessage(text) {
     const tags = extractTagComments(text);
     if (tags.length === 0) return null;
 
-    const has = (name, isChar) => tags.some(t => t.name === name && t.isChar === isChar);
+    const has = (name, isChar) => tags.some(t => t.name === name && t.target === (isChar ? 'char' : 'user'));
+    // Теги, адресат которых не распознан — чтобы сообщить об этом в диагностике
+    const unresolved = tags.filter(t => t.target === null).map(t => `${t.name}${t.payload}`);
     const plain = stripOurTags(text); // для sanity-проверки зачатия — без самих тегов
 
     let conception = has('CONCEPTION_CHECK', false);
@@ -309,6 +364,7 @@ export function scanMessage(text) {
         doctor: has('DOCTOR_VISIT', false),
         charDoctor: has('DOCTOR_VISIT', true),
         daysPassed: scanDaysPassed(text),
+        unresolved,
     };
 
     const anyEvent = result.conception || result.charConception || result.layClutch || result.charLayClutch

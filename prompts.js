@@ -258,7 +258,10 @@ function healthTagBlock(preset) {
     for (const who of ['user', 'char']) {
         const character = getCharacterData(who);
         const name = who === 'char' ? '{{char}}' : '{{user}}';
-        const tagSuffix = who === 'char' ? ':CHAR' : '';
+        // Пишем адресата как {{char}}/{{user}} — SillyTavern подставит сюда имя,
+    // и модель скопирует готовый тег. Раньше в инструкции стояло имя, а в теге
+    // «:CHAR», и модель естественно писала имя — тег уезжал не тому.
+    const tagSuffix = who === 'char' ? ':{{char}}' : ':{{user}}';
         const p = character.pregnancy;
 
         // Тест имеет смысл, пока о беременности не знают наверняка
@@ -290,7 +293,10 @@ function clutchTagBlock(preset) {
         const mine = byParent[who];
         if (!mine.length) continue;
         const name = who === 'char' ? '{{char}}' : '{{user}}';
-        const tagSuffix = who === 'char' ? ':CHAR' : '';
+        // Пишем адресата как {{char}}/{{user}} — SillyTavern подставит сюда имя,
+    // и модель скопирует готовый тег. Раньше в инструкции стояло имя, а в теге
+    // «:CHAR», и модель естественно писала имя — тег уезжал не тому.
+    const tagSuffix = who === 'char' ? ':{{char}}' : ':{{user}}';
         const ripe = mine.some(c => c.weeks >= Math.floor(c.totalWeeks * 0.85));
         const urgency = ripe ? ' — DUE NOW, they may crack open any moment' : '';
 
@@ -352,7 +358,10 @@ function contraceptionLine(who, name, suffix) {
 function characterTagBlock(who, preset) {
     const character = getCharacterData(who);
     const name = who === 'char' ? '{{char}}' : '{{user}}';
-    const tagSuffix = who === 'char' ? ':CHAR' : '';
+    // Пишем адресата как {{char}}/{{user}} — SillyTavern подставит сюда имя,
+    // и модель скопирует готовый тег. Раньше в инструкции стояло имя, а в теге
+    // «:CHAR», и модель естественно писала имя — тег уезжал не тому.
+    const tagSuffix = who === 'char' ? ':{{char}}' : ':{{user}}';
     const pregnancy = character.pregnancy;
     let b = '';
 

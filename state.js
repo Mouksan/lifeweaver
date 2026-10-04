@@ -200,6 +200,38 @@ export function carrierDisplayName(who) {
     }
 }
 
+// Настоящее имя из SillyTavern (не кастомное)
+function realName(who) {
+    try {
+        const ctx = SillyTavern.getContext();
+        return (who === 'char' ? ctx.name2 : ctx.name1) || '';
+    } catch (e) {
+        return '';
+    }
+}
+
+// Кого модель имела в виду, написав имя в теге. Сверяем и с настоящим
+// именем, и с кастомным, и с первым словом (модель любит сокращать
+// «Bao Xing» до «Bao»). Если имя не опознано, но носитель в чате ровно
+// один — отдаём его: других кандидатов всё равно нет.
+export function resolveWhoByName(name) {
+    const needle = String(name || '').trim().toLowerCase();
+    if (!needle) return null;
+
+    for (const who of ['user', 'char']) {
+        const variants = [realName(who), getCharacterData(who).displayName]
+            .filter(Boolean)
+            .flatMap(n => {
+                const low = n.toLowerCase();
+                return [low, low.split(/[\s_-]+/)[0]];
+            });
+        if (variants.some(v => v === needle)) return who;
+    }
+
+    const carriers = ['user', 'char'].filter(w => getCharacterData(w).canCarry);
+    return carriers.length === 1 ? carriers[0] : null;
+}
+
 export function setDisplayName(who, value) {
     getCharacterData(who).displayName = String(value || '').trim();
 }

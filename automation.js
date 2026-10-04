@@ -28,8 +28,9 @@ import {
     applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex, getActivePreset,
     getCharacterData, isBlocked, applyChildTraits, setTimeOfDay, setRpTime, autoArchiveGrownChildren, applyStatus,
     migrateLegacyClutch, getClutches, takeTest, doctorVisit, createUndoCheckpoint, takeMilestoneEvents,
+    resolveWhoByName,
 } from './state.js';
-import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan } from './scanner.js';
+import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan, setWhoResolver } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
 import { showNotification, showBirthDialog, showGraduationDialog } from './notifications.js';
 import { TEST_LABELS } from './health.js';
@@ -463,6 +464,7 @@ function runScan(trigger = '?') {
             откуда: lastMessage.is_user ? 'сообщение игрока' : 'ответ модели',
             комментариевВТексте: described.commentsFound,
             распознаноТегов: described.recognizedTags,
+            адресатНеОпознан: result?.unresolved?.length ? result.unresolved : undefined,
             всеКомментарии: described.allComments,
             хвостТекста: text.slice(-400),
             событий: result ? Object.entries(result).filter(([k, v]) => v === true).map(([k]) => k) : [],
@@ -475,6 +477,10 @@ function runScan(trigger = '?') {
             применено: [],
         };
 
+        if (result?.unresolved?.length) {
+            console.warn('[Lifeweaver] адресат тега не опознан:', result.unresolved);
+            notify(`<i class="fa-solid fa-question"></i> Не понял, к кому относится: ${result.unresolved.join(', ')}`, 'warning');
+        }
         if (result) {
             applyScanResult(result, debugEntry);
             updatePromptInjection();
@@ -498,6 +504,8 @@ function runScan(trigger = '?') {
 
 export function initAutomation() {
     try {
+        // Сканер сам не знает имён персонажей — отдаём ему сопоставление
+        setWhoResolver(resolveWhoByName);
         if (event_types.MESSAGE_RECEIVED) {
             eventSource.on(event_types.MESSAGE_RECEIVED, (i, type) => {
                 if (type === 'quiet') return;

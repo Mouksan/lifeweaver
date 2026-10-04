@@ -112,7 +112,15 @@ export function scanFullHistory() {
         // свайпнуть можно лишь последнее сообщение, глубже история не нужна.
         const recorded = [];
         const recordFrom = Math.max(0, chat.length - HISTORY_CAP - 1);
+        // Заодно ведём журнал «какой вариант сообщения сейчас применён» —
+        // иначе первый же скан после ретроскана счёл бы сообщение незнакомым.
         const recordPosition = (i) => {
+            const m = chat[i];
+            chatData._lastApplied = {
+                pos: i + 1,
+                swipe: typeof m?.swipe_id === 'number' ? m.swipe_id : null,
+                sig: composeScanText(m).sig,
+            };
             if (i >= recordFrom) recorded.push({ pos: i + 1, state: snapshotOfChatData() });
         };
 

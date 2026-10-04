@@ -23,6 +23,11 @@
 //    состояние сначала откатывается к «до» — и берётся оно из сохранённой
 //    истории позиций, а не из памяти вкладки. Снимок в памяти остался только
 //    запасным вариантом.
+//  • (2.8) В данных чата лежит журнал _lastApplied: какая позиция, какой
+//    свайп и какие теги сейчас отражены в состоянии. Перелистнула к другому
+//    свайпу — журнал не совпал, состояние пересчитывается под показанный
+//    вариант. Отметка на самом сообщении теперь нужна только для чатов,
+//    обработанных до появления журнала.
 
 import { eventSource, event_types, saveSettingsDebounced } from '../../../../script.js';
 import {
@@ -102,14 +107,27 @@ function legacyRawBelongsHere(msg, raw) {
     return !otherMatches;
 }
 
+// Наши данные, относящиеся ИМЕННО к показанному свайпу. Сначала смотрим
+// msg.extra (Таверна при перелистывании подставляет туда extra свайпа), потом
+// swipe_info этого свайпа — на случай, если подстановки не было.
+// null — данных этого варианта нет (новый свайп или чат старой версии).
+function variantExtraOf(msg) {
+    const swipe = swipeIdOf(msg);
+    const candidates = [msg?.extra];
+    if (swipe !== null && Array.isArray(msg?.swipe_info)) candidates.push(msg.swipe_info[swipe]?.extra);
+    for (const ex of candidates) {
+        if (ex && Array.isArray(ex.lifeweaverTags) && (ex.lifeweaverSwipe ?? null) === swipe) return ex;
+    }
+    return null;
+}
+
 // Теги, снятые с этого же варианта сообщения при прошлом скане
 function storedTagsOf(msg) {
+    const ve = variantExtraOf(msg);
+    if (ve) return ve.lifeweaverTags.slice();
     const ex = msg?.extra;
-    if (!ex) return [];
-    if (Array.isArray(ex.lifeweaverTags)) {
-        return (ex.lifeweaverSwipe ?? null) === swipeIdOf(msg) ? ex.lifeweaverTags.slice() : [];
-    }
-    if (typeof ex.lifeweaverRaw === 'string' && ex.lifeweaverRaw && legacyRawBelongsHere(msg, ex.lifeweaverRaw)) {
+    if (ex && !Array.isArray(ex.lifeweaverTags) && typeof ex.lifeweaverRaw === 'string' && ex.lifeweaverRaw
+        && legacyRawBelongsHere(msg, ex.lifeweaverRaw)) {
         return ourTagComments(stripThink(ex.lifeweaverRaw));
     }
     return [];
@@ -195,6 +213,11 @@ export function pushStateHistory(pos) {
             chat._history.splice(0, chat._history.length - HISTORY_CAP);
         }
     } catch (e) { /* ignore */ }
+}
+
+// Журнал: какой вариант какого сообщения сейчас отражён в состоянии
+function setLastApplied(pos, swipe, sig) {
+    getChatData()._lastApplied = { pos, swipe, sig };
 }
 
 function hasHistoryAt(pos) {
@@ -533,35 +556,39 @@ function runScan(trigger = '?') {
 
         const swipe = swipeIdOf(lastMessage);
         const { text, tags, sig } = composeScanText(lastMessage);
-        const marker = lastMessage.extra?.lifeweaverApplied;
-        const markerMatches = !!marker && (marker.swipe ?? null) === swipe && marker.sig === sig;
+        const ve = variantExtraOf(lastMessage);
+        const markerMatches = !!ve?.lifeweaverApplied && ve.lifeweaverApplied.sig === sig;
+        const rec = getChatData()._lastApplied;
+        const recIsHere = !!rec && rec.pos === positionId;
         const chatIdNow = getCurrentChatId();
 
-        // 1. Этот вариант с этими тегами уже применён — повтор события
-        if (markerMatches) {
+        // 1. Состояние уже отражает ровно этот вариант — повтор события
+        if (recIsHere && (rec.swipe ?? null) === swipe && rec.sig === sig) {
             console.log(`[Lifeweaver] скан пропущен: позиция ${positionId}, свайп ${swipe} уже применён (триггер: ${trigger})`);
             return;
         }
 
-        // 2. Сообщение без отметки, но его позиция уже есть в истории —
-        //    его обработала прошлая версия или прошлая вкладка. Применять
-        //    повторно нельзя (дни сложились бы), просто ставим отметку.
-        if (!isRegen && !marker && hasHistoryAt(positionId)) {
+        // 2. Журнала по этой позиции нет, но сообщение уже обрабатывали
+        //    (отметка на свайпе или запись в истории) — чат от прошлой версии.
+        //    Повторно не применяем, иначе дни сложились бы: только записываем.
+        if (!isRegen && !recIsHere && (markerMatches || (!ve && hasHistoryAt(positionId)))) {
+            setLastApplied(positionId, swipe, sig);
             persistStamp(ctx, lastMessage, idx, swipe, tags, sig);
-            console.log(`[Lifeweaver] позиция ${positionId} уже была обработана раньше — отмечена без повторного применения (триггер: ${trigger})`);
+            console.log(`[Lifeweaver] позиция ${positionId} уже была обработана раньше — записана без повторного применения (триггер: ${trigger})`);
             return;
         }
 
-        // 3. Отметка от другого варианта, а в этом тегов нет и генерации не
-        //    было — это просто перелистывание свайпов. Пересчёт под
-        //    перелистывание — этап 2, пока состояние не трогаем.
-        if (!isRegen && marker && tags.length === 0) {
-            console.log(`[Lifeweaver] перелистывание к свайпу ${swipe} на позиции ${positionId} — состояние не трогаю (триггер: ${trigger})`);
+        // 3. Свайп из чата старой версии: его теги не сохранились, и что в нём
+        //    было — неизвестно. Пересчитывать «в ноль» нельзя (потеряли бы его
+        //    дни), поэтому состояние не трогаем.
+        if (!isRegen && recIsHere && !ve && tags.length === 0) {
+            console.log(`[Lifeweaver] свайп ${swipe} на позиции ${positionId} из старой версии, теги не сохранились — состояние не трогаю (триггер: ${trigger})`);
             return;
         }
 
-        // 4. Вариант сменился — сначала откат к состоянию ДО этого сообщения
-        const isReplacement = isRegen || !!marker;
+        // 4. Вариант сменился (новый свайп, перелистывание, continue с новыми
+        //    тегами) — сначала откат к состоянию ДО этого сообщения
+        const isReplacement = isRegen || recIsHere || hasHistoryAt(positionId);
         let rollback;
         if (isReplacement) {
             rollback = restoreStateBefore(positionId, chatIdNow);
@@ -591,7 +618,8 @@ function runScan(trigger = '?') {
             чат: chatIdNow || '(не определён!)',
             позиция: positionId,
             свайп: swipe,
-            режим: isReplacement ? 'замена варианта' : 'новое сообщение',
+            режим: !isReplacement ? 'новое сообщение'
+                : trigger === 'MESSAGE_SWIPED' ? 'перелистывание свайпа' : 'замена варианта',
             откат: rollback,
             откуда: lastMessage.is_user ? 'сообщение игрока' : 'ответ модели',
             комментариевВТексте: described.commentsFound,
@@ -624,6 +652,7 @@ function runScan(trigger = '?') {
         }
         logDebug(debugEntry);
 
+        setLastApplied(positionId, swipe, sig);
         pushStateHistory(positionId);
         stampMessage(lastMessage, swipe, tags, sig);
         saveSettingsDebounced();
@@ -656,15 +685,37 @@ export function initAutomation() {
         }
 
         // Реген/свайп с генерацией определяем по явному типу генерации.
-        // MESSAGE_SWIPED сюда больше НЕ ставит флаг: он стреляет и при простом
+        // MESSAGE_SWIPED сюда НЕ ставит флаг: он стреляет и при простом
         // перелистывании, флаг повисал и потом срабатывал на чужой тихой
-        // генерации. Перелистывание обрабатывается отдельно на этапе 2.
+        // генерации. Перелистывание обрабатывается отдельно, ниже.
         if (event_types.GENERATION_STARTED) {
             eventSource.on(event_types.GENERATION_STARTED, (genType, params, dryRun) => {
                 if (dryRun) return;
                 if (genType === 'regenerate' || genType === 'swipe') markRegeneration();
             });
         }
+        // Перелистывание к уже готовому свайпу: пересчитать состояние под него.
+        // Небольшая задержка — Таверна дописывает текст и extra свайпа не
+        // мгновенно. Если это свайп «вправо за край» (сейчас начнётся
+        // генерация нового варианта), показанного свайпа ещё не существует —
+        // пропускаем, им займётся скан после генерации.
+        const onBrowse = (trigger) => setTimeout(() => {
+            try {
+                if (_isRegeneration) return;
+                const m = getStContext()?.chat?.at(-1);
+                if (!m || m.is_user) return;
+                if (Array.isArray(m.swipes) && typeof m.swipe_id === 'number' && m.swipe_id >= m.swipes.length) return;
+                runScan(trigger);
+            } catch (e) { /* ignore */ }
+        }, 60);
+        if (event_types.MESSAGE_SWIPED) {
+            eventSource.on(event_types.MESSAGE_SWIPED, () => onBrowse('MESSAGE_SWIPED'));
+        }
+        // Удаление свайпа тоже меняет показанный вариант (есть не во всех версиях ST)
+        if (event_types.MESSAGE_SWIPE_DELETED) {
+            eventSource.on(event_types.MESSAGE_SWIPE_DELETED, () => onBrowse('MESSAGE_SWIPED'));
+        }
+
         // GENERATION_ENDED — хук для стриминговых свайпов/continue
         if (event_types.GENERATION_ENDED) {
             eventSource.on(event_types.GENERATION_ENDED, () => runScan('GENERATION_ENDED'));

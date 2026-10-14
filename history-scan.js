@@ -31,8 +31,8 @@ import { seededRandom } from './health.js';
 // Текст сообщения для скана — тем же способом, что и живой скан: проза плюс
 // теги ИМЕННО показанного варианта. Раньше брался сырой исходник из extra,
 // а он мог остаться от другого свайпа — и ретроскан читал чужие теги.
-function scanTextOf(msg) {
-    return composeScanText(msg).text;
+function scanTextOf(msg, index) {
+    return composeScanText(msg, index).text;
 }
 
 // Оценка: сколько сообщений содержит наши теги. Нужна, чтобы честно
@@ -42,9 +42,10 @@ export function estimateHistory() {
         const ctx = typeof SillyTavern?.getContext === 'function' ? SillyTavern.getContext() : null;
         const chat = ctx?.chat || [];
         let tagged = 0;
-        for (const msg of chat) {
+        for (let i = 0; i < chat.length; i++) {
+            const msg = chat[i];
             if (!msg?.mes || msg.is_system) continue;
-            if (scanMessage(scanTextOf(msg))) tagged++;
+            if (scanMessage(scanTextOf(msg, i))) tagged++;
         }
         return { total: chat.length, tagged };
     } catch (e) {
@@ -63,7 +64,7 @@ export function estimateHistory() {
 // каждом ретроскане. Такие переброски перечисляются в stats.rerolled, а их
 // исход записывается на сообщение — дальше он воспроизводится.
 export function scanFullHistory(options = {}) {
-    const stats = { processed: 0, days: 0, conceptions: 0, clutches: 0, births: 0, losses: 0, tests: 0, traits: 0, rerolled: [] };
+    const stats = { processed: 0, days: 0, conceptions: 0, clutches: 0, births: 0, losses: 0, tests: 0, traits: 0, rerolled: [], calendarFixes: [] };
     const ctx = typeof SillyTavern?.getContext === 'function' ? SillyTavern.getContext() : null;
     const chat = ctx?.chat || [];
     if (chat.length === 0) return stats;
@@ -138,7 +139,7 @@ export function scanFullHistory(options = {}) {
             chatData._lastApplied = {
                 pos: i + 1,
                 swipe: typeof m?.swipe_id === 'number' ? m.swipe_id : null,
-                sig: composeScanText(m).sig,
+                sig: composeScanText(m, i).sig,
             };
             if (i >= recordFrom) recorded.push({ pos: i + 1, state: snapshotOfChatData() });
         };
@@ -146,7 +147,11 @@ export function scanFullHistory(options = {}) {
         for (let i = 0; i < chat.length; i++) {
             const msg = chat[i];
             if (!msg?.mes || msg.is_system) { recordPosition(i); continue; }
-            const result = scanMessage(scanTextOf(msg));
+            const composed = composeScanText(msg, i);
+            if (composed.calendarUsed) {
+                stats.calendarFixes.push({ mes: i, model: composed.model, days: composed.calendar.days, span: composed.calendar.span });
+            }
+            const result = scanMessage(composed.text);
             if (!result) { recordPosition(i); continue; }
             stats.processed++;
 
@@ -184,7 +189,7 @@ export function scanFullHistory(options = {}) {
                     if (res === true) stats.conceptions++;
                     if (!recorded && outcome) {
                         stats.rerolled.push({ mes: i, who, ...outcome });
-                        toStamp.push({ msg, who, outcome });
+                        toStamp.push({ msg, who, outcome, index: i });
                     }
                 }
                 if (isChar ? result.charSexRevealed : result.sexRevealed) {
@@ -237,8 +242,8 @@ export function scanFullHistory(options = {}) {
         chatData._history = recorded.slice(-HISTORY_CAP);
         // Переброшенные исходы записываем на сообщения — следующий ретроскан
         // и пересчёт при листании их воспроизведут, а не бросят снова
-        for (const { msg, who, outcome } of toStamp) {
-            stampVariant(msg, { ...recordedRollsOf(msg), [who]: outcome });
+        for (const { msg, who, outcome, index } of toStamp) {
+            stampVariant(msg, { ...recordedRollsOf(msg), [who]: outcome }, index);
         }
         if (toStamp.length) {
             try { ctx.saveChat?.(); } catch (e) { /* ignore */ }

@@ -1876,6 +1876,7 @@ function renderDebugBox() {
         <div class="lw-debug-row"><span class="lw-dim">Триггер:</span> ${escapeHtml(d.триггер)} · позиция ${d.позиция} · ${escapeHtml(d.откуда)}</div>
         <div class="lw-debug-row"><span class="lw-dim">Распознано тегов:</span> ${escapeHtml(tags)}</div>
         <div class="lw-debug-row"><span class="lw-dim">Дней прошло:</span> ${d.днейПрошло}</div>
+        ${d.календарь ? `<div class="lw-debug-row"><span class="lw-dim">Календарь Hearthtide:</span> ${escapeHtml(d.календарь)}</div>` : ''}
         <div class="lw-debug-row"><span class="lw-dim">Применено:</span></div>
         ${applied}
         <div class="lw-debug-row"><span class="lw-dim">Все комментарии в тексте (${d.комментариевВТексте}):</span></div>
@@ -1898,18 +1899,27 @@ function renderDaysFix(res = null) {
     }
     const modelText = info.model === null ? 'тега нет' : `${info.model} дн.`;
     const fixed = info.override !== null;
-    const status = fixed
-        ? `по модели: ${modelText} · <b>исправлено: ${info.override} дн.</b>`
-        : `по модели: ${modelText}`;
+    const calDiffers = info.calendarDays !== null && info.calendarDays !== info.model;
+    let verdict;
+    if (fixed) verdict = `<b>итог: ${info.override} дн. — твоя правка</b>`;
+    else if (calDiffers) verdict = `<b>итог: ${info.calendarDays} дн. — взято по календарю</b>`;
+    else verdict = `итог: ${info.auto} дн.`;
+    const status = `
+        по модели: ${modelText}<br>
+        <span class="lw-dim">календарь Hearthtide:</span> ${escapeHtml(info.calendarText)}<br>
+        ${verdict}`;
+    const buttons = [];
+    if (fixed) buttons.push(`<button type="button" class="lw-btn lw-btn-muted" id="lw_days_reset">Снять правку${info.calendarDays !== null ? ' (будет по календарю)' : ''}</button>`);
+    else if (calDiffers && info.model !== null) buttons.push(`<button type="button" class="lw-btn lw-btn-muted" id="lw_days_model" data-days="${info.model}">Как у модели (${info.model})</button>`);
     return `
         <div class="lw-debug-row"><b>Дни в этом ответе</b> <span class="lw-dim">· сообщение #${info.mesIndex}${info.swipe !== null ? `, свайп ${info.swipe}` : ''}</span></div>
         <div class="lw-debug-row">${status}</div>
         <div class="lw-child-actions" style="margin-top: 8px; align-items: center;">
             <input type="number" class="lw-input" id="lw_days_input" min="0" max="${info.max}" value="${info.effective}" style="width: 90px; flex: 0 0 auto;">
             <button type="button" class="lw-btn" id="lw_days_apply">Применить</button>
-            ${fixed ? '<button type="button" class="lw-btn lw-btn-muted" id="lw_days_reset">Как у модели</button>' : ''}
+            ${buttons.join('')}
         </div>
-        <div class="lw-dim" style="margin-top:6px; font-size: 0.85em;">Правка живёт на этом варианте ответа: переживает листание свайпов, перезагрузку и ретроскан. Отменяется кнопкой «Как у модели».</div>
+        <div class="lw-dim" style="margin-top:6px; font-size: 0.85em;">Главнее всех твоя правка, потом календарь Hearthtide, потом число модели. Правка живёт на этом варианте ответа: переживает листание свайпов, перезагрузку и ретроскан.</div>
         ${note}
     `;
 }
@@ -2123,7 +2133,8 @@ function bindSettingsEvents() {
                 прошло дней: ${st.days} · зачатий: ${st.conceptions} · кладок: ${st.clutches} ·
                 рождений: ${st.births} · потерь: ${st.losses} · тестов: ${st.tests}
             </div>
-            ${renderRerolledReport(st.rerolled)}`);
+            ${renderRerolledReport(st.rerolled)}
+            ${renderCalendarReport(st.calendarFixes)}`);
         showNotification(`<i class="fa-solid fa-clock-rotate-left"></i> История пересканирована: ${st.processed} событийных сообщений`, 'success');
         renderUniverseTabs();
         refreshUndoButton();
@@ -2146,6 +2157,9 @@ function bindSettingsEvents() {
     });
     $('#lw_days_fix').on('click', '#lw_days_reset', () => {
         afterDaysFix(setDaysOverride(null));
+    });
+    $('#lw_days_fix').on('click', '#lw_days_model', function () {
+        afterDaysFix(setDaysOverride($(this).data('days')));
     });
     $('#lw_debug_prompt').on('click', () => {
         const prompt = buildPrompt();
@@ -2362,6 +2376,16 @@ function readRescanStarts() {
         if (Number.isInteger(v) && v > 0) out[$(this).data('who')] = v;
     });
     return out;
+}
+
+function renderCalendarReport(list) {
+    if (!list?.length) return '';
+    const shown = list.slice(0, 15).map(r =>
+        `<div>сообщение <b>#${r.mes}</b>: модель ${r.model ?? '—'} → по календарю ${r.days} (${escapeHtml(r.span)})</div>`).join('');
+    const more = list.length > 15 ? `<div class="lw-dim">…и ещё ${list.length - 15}</div>` : '';
+    return `
+        <div style="margin-top:8px;"><b>Дни поправлены по календарю Hearthtide:</b> ${list.length}</div>
+        ${shown}${more}`;
 }
 
 function renderRerolledReport(list) {

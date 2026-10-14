@@ -6,6 +6,14 @@
 // по позициям, откат при удалении, stripThink перед сканом, исходник тегов
 // в msg.extra, подчистка отрисованного DOM.
 //
+// ── (2.10.1) Сверка с календарём Hearthtide ──
+// Если у ответа и у предыдущего ответа модели есть тег Hearthtide с датой
+// (<!-- HT date=0142-05-17 ... -->), разница дат — это сколько дней прошло.
+// Не совпала с DAYS_PASSED — берём календарь. Порядок главенства:
+// ручная правка > календарь > число модели. Без Hearthtide ничего не
+// происходит: читается только текст сообщений, к самому расширению мы не
+// обращаемся.
+//
 // ── (2.10) Ручная правка дней ──
 // Если модель ошиблась в DAYS_PASSED, число можно поправить в диагностике.
 // Правка (lifeweaverDaysOverride) хранится на варианте сообщения рядом с его
@@ -60,7 +68,7 @@ import { renderInfoblock } from './infoblock.js';
 export const HISTORY_CAP = 25;
 // Печатается в консоль при загрузке — видно, какая версия реально работает
 // (браузер любит держать старый файл в кэше).
-const AUTOMATION_BUILD = '2.10.0';
+const AUTOMATION_BUILD = '2.10.1';
 
 // ── Состояние обработки (живёт в памяти, не в настройках) ──
 let _isRegeneration = false;
@@ -163,16 +171,101 @@ function storedTagsOf(msg) {
 // Экспортируется — тем же способом читает историю ретроскан.
 // tags — модельные теги (их и храним), sig и text — с учётом ручной правки
 // дней: правка меняет подпись, поэтому пересчёт срабатывает сам.
-export function composeScanText(msg) {
+// index — номер сообщения в чате; без него сверка с календарём не делается.
+export function composeScanText(msg, index = null) {
     const visible = stripThink(msg?.mes || '');
-    const tags = [...new Set([...storedTagsOf(msg), ...ourTagComments(visible)])];
+    const tags = modelTagsOf(msg);
+    const model = modelDaysOf(tags);
     const override = daysOverrideOf(msg);
-    const effective = override === null
+    const calendar = Number.isInteger(index) ? calendarDaysFor(index) : { status: 'none' };
+    // Подставляем число только когда оно ОТЛИЧАЕТСЯ от модельного: если всё
+    // сходится, подпись не меняется и лишнего пересчёта не будет.
+    let days = null;
+    let calendarUsed = false;
+    if (override !== null) days = override;
+    else if (calendar.status === 'ok' && calendar.days !== model) { days = calendar.days; calendarUsed = true; }
+    const effective = days === null
         ? tags
-        : [`<!-- [DAYS_PASSED:${override}] -->`, ...tags.filter(t => !DAYS_TAG_RE.test(t))];
+        : [`<!-- [DAYS_PASSED:${days}] -->`, ...tags.filter(t => !DAYS_TAG_RE.test(t))];
     const prose = stripOurTags(visible);
     const text = effective.length ? `${prose}\n${effective.join('\n')}` : prose;
-    return { text, tags, override, sig: simpleHash(effective.join('\n')) };
+    return { text, tags, override, model, calendar, calendarUsed, sig: simpleHash(effective.join('\n')) };
+}
+
+// Модельные теги варианта: сохранённые + те, что ещё в тексте
+function modelTagsOf(msg) {
+    const visible = stripThink(msg?.mes || '');
+    return [...new Set([...storedTagsOf(msg), ...ourTagComments(visible)])];
+}
+
+// ── Календарь Hearthtide ──
+const HT_DATE_RE = /<!--\s*HT\b[^>]*?\bdate\s*=\s*(\d{1,6})-(\d{1,2})-(\d{1,2})/gi;
+const MAX_CALENDAR_GAP = 366;
+
+// Последняя дата Hearthtide в тексте сообщения: { y, m, d, n } или null
+function htDateOf(msg) {
+    const text = String(msg?.mes || '');
+    let last = null;
+    for (const mm of text.matchAll(HT_DATE_RE)) last = mm;
+    if (!last) return null;
+    const y = parseInt(last[1], 10), m = parseInt(last[2], 10), d = parseInt(last[3], 10);
+    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    return { y, m, d, n: dayNumber(y, m, d) };
+}
+
+// Порядковый номер дня (григорианский календарь, работает и для 142 года)
+function dayNumber(y, m, d) {
+    y -= m <= 2 ? 1 : 0;
+    const era = Math.floor(y / 400);
+    const yoe = y - era * 400;
+    const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;
+    const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+    return era * 146097 + doe;
+}
+
+function fmtHtDate(dt) {
+    return `${String(dt.d).padStart(2, '0')}.${String(dt.m).padStart(2, '0')}.${String(dt.y).padStart(4, '0')}`;
+}
+
+// Сколько дней прошло по календарю Hearthtide в ответе под номером index.
+// status: 'ok' (days, from, to) | 'none' (сверять не с чем) | 'weird' (дата
+// выглядит неправдоподобно, не используем) | 'skip' (между ответами было
+// сообщение со своим сдвигом дней — разница дат относится не только к этому
+// ответу). reason — пояснение для диагностики.
+function calendarDaysFor(index) {
+    try {
+        const chat = getStContext()?.chat;
+        const msg = chat?.[index];
+        if (!msg || msg.is_user || msg.is_system) return { status: 'none' };
+        const to = htDateOf(msg);
+        if (!to) return { status: 'none', reason: 'в ответе нет даты Hearthtide' };
+        for (let j = index - 1; j >= 0; j--) {
+            const prev = chat[j];
+            if (!prev || prev.is_system) continue;
+            if (prev.is_user) {
+                if ((modelDaysOf(modelTagsOf(prev)) || 0) > 0) {
+                    return { status: 'skip', reason: 'между ответами было твоё сообщение со своим сдвигом дней' };
+                }
+                continue;
+            }
+            const from = htDateOf(prev);
+            if (!from) return { status: 'none', reason: 'у прошлого ответа нет даты Hearthtide' };
+            const days = to.n - from.n;
+            const span = `${fmtHtDate(from)} → ${fmtHtDate(to)}`;
+            if (days < 0) return { status: 'weird', reason: `дата раньше прошлой (${span})`, span };
+            if (days > MAX_CALENDAR_GAP) return { status: 'weird', reason: `скачок больше года (${span})`, span };
+            return { status: 'ok', days, span };
+        }
+        return { status: 'none', reason: 'это первый ответ с датой' };
+    } catch (e) {
+        return { status: 'none' };
+    }
+}
+
+function describeCalendar(cal) {
+    if (!cal || cal.status === 'none') return cal?.reason ? `нет сверки — ${cal.reason}` : 'нет сверки';
+    if (cal.status === 'ok') return `${cal.days} дн. (${cal.span})`;
+    return `не учитываю — ${cal.reason}`;
 }
 
 const DAYS_TAG_RE = /\[\s*DAYS_PASSED\b/i;
@@ -251,15 +344,20 @@ export function getDaysFixInfo() {
     const msg = chat[idx];
     if (!msg || msg.is_system) return { ok: false, reason: 'Последнее сообщение — системное, править нечего.' };
     if (msg.is_user) return { ok: false, reason: 'Последнее сообщение — твоё. Править дни можно только у ответа модели, который стоит последним в чате.' };
-    const { tags, override } = composeScanText(msg);
-    const model = modelDaysOf(tags);
+    const { model, override, calendar } = composeScanText(msg, idx);
+    const calendarDays = calendar.status === 'ok' ? calendar.days : null;
+    const auto = calendarDays ?? model ?? 0;
     return {
         ok: true,
         mesIndex: idx,
         swipe: swipeIdOf(msg),
         model,
         override,
-        effective: override ?? model ?? 0,
+        calendar,
+        calendarDays,
+        calendarText: describeCalendar(calendar),
+        auto,
+        effective: override ?? auto,
         max: MAX_DAYS_PER_TAG,
     };
 }
@@ -276,13 +374,14 @@ export function setDaysOverride(value) {
             if (!Number.isInteger(v) || v < 0) return { ok: false, message: 'Нужно целое число от 0.' };
             v = Math.min(v, MAX_DAYS_PER_TAG);
         }
-        // Правка, совпадающая с моделью, — это просто «как у модели»
-        if (v !== null && v === info.model) v = null;
+        // Правка, совпадающая с тем, что и так выходит (календарь или модель), —
+        // это просто отсутствие правки
+        if (v !== null && v === info.auto) v = null;
 
         const ctx = getStContext();
         const msg = ctx.chat[info.mesIndex];
         const swipe = swipeIdOf(msg);
-        const { tags } = composeScanText(msg);
+        const { tags } = composeScanText(msg, info.mesIndex);
         // Отметка варианта пишется вместе с правкой; подпись «применено»
         // оставляем старой — runScan увидит расхождение и пересчитает.
         const oldApplied = variantExtraOf(msg)?.lifeweaverApplied?.sig ?? null;
@@ -293,8 +392,8 @@ export function setDaysOverride(value) {
         return {
             ok: true,
             message: v === null
-                ? `Вернул как у модели: ${info.model ?? 0} дн.`
-                : `Поставил ${v} дн. вместо ${info.model ?? 'ничего'} — состояние пересчитано.`,
+                ? `Правка снята: ${info.auto} дн. (${info.calendarDays !== null ? 'по календарю Hearthtide' : 'как у модели'}).`
+                : `Поставил ${v} дн. — состояние пересчитано.`,
         };
     } catch (e) {
         console.error('[Lifeweaver] setDaysOverride error:', e);
@@ -317,8 +416,8 @@ export function recordedRollsOf(msg) {
 }
 
 // Для ретроскана: проставить на сообщение отметки варианта и исходы бросков
-export function stampVariant(msg, rolls) {
-    const { tags, sig } = composeScanText(msg);
+export function stampVariant(msg, rolls, index = null) {
+    const { tags, sig } = composeScanText(msg, index);
     stampMessage(msg, swipeIdOf(msg), tags, sig, rolls);
 }
 
@@ -756,7 +855,7 @@ function runScan(trigger = '?') {
         _isRegeneration = false;
 
         const swipe = swipeIdOf(lastMessage);
-        const { text, tags, sig } = composeScanText(lastMessage);
+        const { text, tags, sig, calendar, calendarUsed, model: modelDays } = composeScanText(lastMessage, idx);
         const ve = variantExtraOf(lastMessage);
         const markerMatches = !!ve?.lifeweaverApplied && ve.lifeweaverApplied.sig === sig;
         const rec = getChatData()._lastApplied;
@@ -836,6 +935,9 @@ function runScan(trigger = '?') {
             }),
             днейПрошло: result?.daysPassed || 0,
             правкаДней: daysOverrideOf(lastMessage) ?? undefined,
+            календарь: lastMessage.is_user ? undefined
+                : (calendarUsed ? `взял ${calendar.days} дн. по календарю Hearthtide (${calendar.span}), модель говорила ${modelDays ?? 'ничего'}`
+                    : describeCalendar(calendar)),
             применено: [],
         };
 
@@ -938,6 +1040,15 @@ export function initAutomation() {
                 try { reindexAfterSwipeDeleted(data); } catch (e) { /* ignore */ }
                 reconcile('MESSAGE_SWIPED', [60, 700]);
             });
+        }
+
+        // Редактирование сообщений: могла поменяться дата Hearthtide (в этом
+        // ответе или в прошлом), а значит — дни последнего ответа. Сверка
+        // ничего не делает, если итоговое число не изменилось.
+        for (const evt of ['MESSAGE_EDITED', 'MESSAGE_UPDATED']) {
+            if (event_types[evt]) {
+                eventSource.on(event_types[evt], () => reconcile('ПРАВКА СООБЩЕНИЯ', [120]));
+            }
         }
 
         // GENERATION_ENDED — хук для стриминговых свайпов/continue

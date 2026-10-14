@@ -348,6 +348,9 @@ export function startPregnancy(who, opts = {}) {
         // Судьба беременности определяется сразу, как у вдохновителя:
         // каждое осложнение либо выпадет на своей неделе, либо не выпадет вовсе.
         _plannedComplications: rollPlannedComplications(bodyPoolFor(preset), total, rnd),
+        // Откуда взялась: вариант сообщения с тегом зачатия ({ key, mes }).
+        // Нужен, чтобы «Сбросить» мог запомнить, что этого зачатия не было.
+        _source: opts.source && typeof opts.source.key === 'string' ? { ...opts.source } : null,
     };
 
     // Началась НОВАЯ беременность — блоки анти-воскрешения от предыдущей
@@ -849,6 +852,30 @@ export function getTimeForCare() {
 const UNDO_DEPTH = 10;
 
 // Снимок делается ПЕРЕД действием. label — что именно сейчас произойдёт.
+// ── Отменённые зачатия ──
+// «Сбросить» у беременности, начатой по тегу, кладёт её источник сюда.
+// Пересчёт и ретроскан считают такое зачатие несостоявшимся. Список живёт
+// в данных чата, поэтому отменяется стрелкой в шапке вместе со сбросом.
+export function getCancelledConceptions() {
+    const chat = getChatData();
+    if (!Array.isArray(chat.cancelledConceptions)) chat.cancelledConceptions = [];
+    return chat.cancelledConceptions;
+}
+
+export function isConceptionCancelled(key) {
+    return !!key && getCancelledConceptions().includes(key);
+}
+
+// Вызывать ДО сброса беременности. Возвращает источник ({ key, mes }) или
+// null, если беременность начата руками и запоминать нечего.
+export function cancelConceptionSource(who) {
+    const src = getCharacterData(who).pregnancy?._source;
+    if (!src?.key) return null;
+    const list = getCancelledConceptions();
+    if (!list.includes(src.key)) list.push(src.key);
+    return src;
+}
+
 export function createUndoCheckpoint(label = 'Изменение') {
     const chat = getChatData();
     if (!Array.isArray(chat._undo)) chat._undo = [];
@@ -1437,7 +1464,7 @@ export function applyConception(who, opts = {}) {
     }
     if (!result.success) return result;
 
-    startPregnancy(who, { rnd: typeof opts.detailRnd === 'function' ? opts.detailRnd : undefined });
+    startPregnancy(who, { rnd: typeof opts.detailRnd === 'function' ? opts.detailRnd : undefined, source: opts.source });
     return true;
 }
 

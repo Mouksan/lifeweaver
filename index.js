@@ -18,7 +18,7 @@ import {
     getHealthHolders, doctorVisit, takeTest, getCurrentChatId, addExistingChild, daysSinceConception,
     getLooks, setLooks, getPostpartum, setLactating, clearPostpartum, getDynamic, getChildDynamic,
     getCyclePhase, getAvatarUrl, setSuppressants, isPregnancyObvious, getCustomAvatar, setCustomAvatar, setDisplayName,
-    createUndoCheckpoint, undoLastChange, canUndo, lastUndoLabel,
+    createUndoCheckpoint, undoLastChange, canUndo, lastUndoLabel, cancelConceptionSource,
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, getMilestoneProgress, formatAge, sexLabel, TIME_BUCKETS } from './baby-care.js';
@@ -987,7 +987,13 @@ function bindPregnancyEvents() {
     $('.lw-end-pregnancy').on('click', function () {
         const who = $(this).data('who');
         createUndoCheckpoint(`Сброс беременности: ${carrierDisplayName(who)}`);
+        // Беременность из тега: запоминаем, что этого зачатия не было, —
+        // иначе ретроскан и листание свайпов вернут её обратно.
+        const src = cancelConceptionSource(who);
         endPregnancy(who);
+        if (src) {
+            showNotification(`<i class="fa-solid fa-eraser"></i> Запомнил: зачатия${Number.isInteger(src.mes) ? ` в сообщении #${src.mes}` : ''} не было`, 'info');
+        }
         saveSettings();
         renderContent();
     });
@@ -2134,7 +2140,8 @@ function bindSettingsEvents() {
                 рождений: ${st.births} · потерь: ${st.losses} · тестов: ${st.tests}
             </div>
             ${renderRerolledReport(st.rerolled)}
-            ${renderCalendarReport(st.calendarFixes)}`);
+            ${renderCalendarReport(st.calendarFixes)}
+            ${renderCancelledReport(st.cancelled)}`);
         showNotification(`<i class="fa-solid fa-clock-rotate-left"></i> История пересканирована: ${st.processed} событийных сообщений`, 'success');
         renderUniverseTabs();
         refreshUndoButton();
@@ -2376,6 +2383,13 @@ function readRescanStarts() {
         if (Number.isInteger(v) && v > 0) out[$(this).data('who')] = v;
     });
     return out;
+}
+
+function renderCancelledReport(list) {
+    if (!list?.length) return '';
+    const lines = list.map(r =>
+        `<div>сообщение <b>#${r.mes}</b> — ${escapeHtml(carrierDisplayName(r.who))}: зачатие отменено вручную</div>`).join('');
+    return `<div style="margin-top:8px;"><b>Пропущены отменённые зачатия:</b></div>${lines}`;
 }
 
 function renderCalendarReport(list) {

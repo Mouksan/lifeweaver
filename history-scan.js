@@ -22,7 +22,7 @@ import { getSettings, getChatData, getChildren, getGrownChildren, getCharacterDa
          advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
          applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex,
          applyChildTraits, setTimeOfDay, setRpTime, createUndoCheckpoint, applyStatus,
-         clearResurrectionBlocks, getClutches, setCycleDay, setCycleStart } from './state.js';
+         clearResurrectionBlocks, getClutches, setCycleDay, setCycleStart, isConceptionCancelled } from './state.js';
 import { scanMessage } from './scanner.js';
 import { composeScanText, snapshotOfChatData, clearRegenState, HISTORY_CAP,
          recordedRollsOf, stampVariant, variantSeedBase } from './automation.js';
@@ -64,7 +64,7 @@ export function estimateHistory() {
 // каждом ретроскане. Такие переброски перечисляются в stats.rerolled, а их
 // исход записывается на сообщение — дальше он воспроизводится.
 export function scanFullHistory(options = {}) {
-    const stats = { processed: 0, days: 0, conceptions: 0, clutches: 0, births: 0, losses: 0, tests: 0, traits: 0, rerolled: [], calendarFixes: [] };
+    const stats = { processed: 0, days: 0, conceptions: 0, clutches: 0, births: 0, losses: 0, tests: 0, traits: 0, rerolled: [], calendarFixes: [], cancelled: [] };
     const ctx = typeof SillyTavern?.getContext === 'function' ? SillyTavern.getContext() : null;
     const chat = ctx?.chat || [];
     if (chat.length === 0) return stats;
@@ -175,11 +175,16 @@ export function scanFullHistory(options = {}) {
                     if (applyMiscarriage(who)) stats.losses++;
                     continue;
                 }
-                if (isChar ? result.charConception : result.conception) {
+                const sourceKey = `${variantSeedBase(msg, i)}|${who}`;
+                const conceptionTag = isChar ? result.charConception : result.conception;
+                if (conceptionTag && isConceptionCancelled(sourceKey)) {
+                    stats.cancelled.push({ mes: i, who });
+                } else if (conceptionTag) {
                     const recorded = recordedRollsOf(msg)[who] || null;
                     const seedBase = variantSeedBase(msg, i);
                     let outcome = null;
                     const res = applyConception(who, {
+                        source: { key: sourceKey, mes: i },
                         forced: recorded,
                         rnd: seededRandom(`${seedBase}|${who}|conception`),
                         // Тем же зерном, что живой скан: те же малыши

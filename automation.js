@@ -56,7 +56,7 @@ import {
     advanceTimeByDays, applyConception, applyLayClutch, applyBirth,
     applyMiscarriage, applyAbortion, setPregnancyKnown, revealOffspringSex, getActivePreset,
     getCharacterData, isBlocked, applyChildTraits, setTimeOfDay, setRpTime, autoArchiveGrownChildren, applyStatus,
-    migrateLegacyClutch, getClutches, takeTest, doctorVisit, createUndoCheckpoint, takeMilestoneEvents,
+    migrateLegacyClutch, getClutches, takeTest, doctorVisit, createUndoCheckpoint, takeMilestoneEvents, isConceptionCancelled,
     resolveWhoByName,
 } from './state.js';
 import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan, setWhoResolver, MAX_DAYS_PER_TAG } from './scanner.js';
@@ -68,7 +68,7 @@ import { renderInfoblock } from './infoblock.js';
 export const HISTORY_CAP = 25;
 // Печатается в консоль при загрузке — видно, какая версия реально работает
 // (браузер любит держать старый файл в кэше).
-const AUTOMATION_BUILD = '2.10.1';
+const AUTOMATION_BUILD = '2.10.2';
 
 // ── Состояние обработки (живёт в памяти, не в настройках) ──
 let _isRegeneration = false;
@@ -505,12 +505,17 @@ function hasHistoryAt(pos) {
 }
 
 // Полная замена состояния снимком; стек отмен и история переживают
+// Отменённые зачатия — решение игрока, а не состояние сюжета: откат к
+// снимку позиции (листание, реген, удаление сообщения) их не трогает.
+// Стрелка в шапке восстанавливает их своим путём, вместе со сбросом.
 function replaceChatState(state, keepHistory) {
     const chat = getChatData();
     const keptUndo = chat._undo;
+    const keptCancelled = Array.isArray(chat.cancelledConceptions) ? chat.cancelledConceptions.slice() : null;
     for (const k of Object.keys(chat)) delete chat[k];
     Object.assign(chat, structuredClone(state));
     if (keptUndo) chat._undo = keptUndo;
+    if (keptCancelled) chat.cancelledConceptions = keptCancelled;
     chat._history = keepHistory;
 }
 
@@ -667,13 +672,17 @@ function applyScanResult(result, debug = null, rolls = null) {
             if (applyMiscarriage(who)) notify('<i class="fa-solid fa-heart-crack"></i> Беременность потеряна', 'warning');
             continue;
         }
-        if (conceptionTag) {
+        const sourceKey = rolls?.seedBase ? `${rolls.seedBase}|${who}` : null;
+        if (conceptionTag && isConceptionCancelled(sourceKey)) {
+            log(`${who}: зачатие из этого сообщения отменено вручную — пропускаю`);
+        } else if (conceptionTag) {
             // Исход уже разыгран для этого варианта — воспроизводим его
             const forced = rolls?.recorded?.[who] || null;
             const res = applyConception(who, {
                 forced,
                 onRoll: (o) => { if (rolls) rolls.made[who] = o; },
                 detailRnd: rolls?.seedBase ? seededRandom(`${rolls.seedBase}|${who}|details`) : undefined,
+                source: sourceKey ? { key: sourceKey, mes: rolls.mesIndex } : undefined,
             });
             const replay = forced ? ' (повтор записанного броска)' : '';
             if (res === true) {
@@ -948,7 +957,7 @@ function runScan(trigger = '?') {
         // Записанные броски этого варианта + те, что будут сделаны сейчас.
         // Неиспользованные записанные сохраняем: персонаж мог быть уже
         // беременен при этом пересчёте, а при другом — нет.
-        const rolls = { recorded: ve?.lifeweaverRolls || {}, made: {}, seedBase: variantSeedBase(lastMessage, idx) };
+        const rolls = { recorded: ve?.lifeweaverRolls || {}, made: {}, seedBase: variantSeedBase(lastMessage, idx), mesIndex: idx };
         if (result) {
             applyScanResult(result, debugEntry, rolls);
         }

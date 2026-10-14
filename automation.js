@@ -6,6 +6,13 @@
 // по позициям, откат при удалении, stripThink перед сканом, исходник тегов
 // в msg.extra, подчистка отрисованного DOM.
 //
+// ── (2.10) Ручная правка дней ──
+// Если модель ошиблась в DAYS_PASSED, число можно поправить в диагностике.
+// Правка (lifeweaverDaysOverride) хранится на варианте сообщения рядом с его
+// тегами и подменяет модельное число при любом пересчёте — живом, при
+// листании, в ретроскане. Модельные теги не трогаются: «Как у модели»
+// просто убирает правку.
+//
 // ── (2.9) Броски зачатия привязаны к варианту сообщения ──
 // Исход броска записывается в extra варианта (lifeweaverRolls). Пересчёт
 // того же варианта — перелистывание, ретроскан — исход воспроизводит, а не
@@ -44,7 +51,7 @@ import {
     migrateLegacyClutch, getClutches, takeTest, doctorVisit, createUndoCheckpoint, takeMilestoneEvents,
     resolveWhoByName,
 } from './state.js';
-import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan, setWhoResolver } from './scanner.js';
+import { scanMessage, stripOurTags, hasOurTags, stripThink, describeScan, setWhoResolver, MAX_DAYS_PER_TAG } from './scanner.js';
 import { updatePromptInjection } from './prompts.js';
 import { showNotification, showBirthDialog, showGraduationDialog } from './notifications.js';
 import { TEST_LABELS, seededRandom } from './health.js';
@@ -53,7 +60,7 @@ import { renderInfoblock } from './infoblock.js';
 export const HISTORY_CAP = 25;
 // Печатается в консоль при загрузке — видно, какая версия реально работает
 // (браузер любит держать старый файл в кэше).
-const AUTOMATION_BUILD = '2.9.1';
+const AUTOMATION_BUILD = '2.10.0';
 
 // ── Состояние обработки (живёт в памяти, не в настройках) ──
 let _isRegeneration = false;
@@ -154,17 +161,40 @@ function storedTagsOf(msg) {
 // вроде DAYS_PASSED побеждает первый, и continue, дописавший свежий
 // «DAYS_PASSED:0», не перебьёт исходное число дней.
 // Экспортируется — тем же способом читает историю ретроскан.
+// tags — модельные теги (их и храним), sig и text — с учётом ручной правки
+// дней: правка меняет подпись, поэтому пересчёт срабатывает сам.
 export function composeScanText(msg) {
     const visible = stripThink(msg?.mes || '');
     const tags = [...new Set([...storedTagsOf(msg), ...ourTagComments(visible)])];
+    const override = daysOverrideOf(msg);
+    const effective = override === null
+        ? tags
+        : [`<!-- [DAYS_PASSED:${override}] -->`, ...tags.filter(t => !DAYS_TAG_RE.test(t))];
     const prose = stripOurTags(visible);
-    const text = tags.length ? `${prose}\n${tags.join('\n')}` : prose;
-    return { text, tags, sig: simpleHash(tags.join('\n')) };
+    const text = effective.length ? `${prose}\n${effective.join('\n')}` : prose;
+    return { text, tags, override, sig: simpleHash(effective.join('\n')) };
+}
+
+const DAYS_TAG_RE = /\[\s*DAYS_PASSED\b/i;
+
+// Ручная правка дней показанного варианта (число) или null
+function daysOverrideOf(msg) {
+    const v = variantExtraOf(msg)?.lifeweaverDaysOverride;
+    return Number.isInteger(v) && v >= 0 ? v : null;
+}
+
+// Сколько дней написала модель в этом варианте; null — тега нет
+function modelDaysOf(tags) {
+    for (const t of tags) {
+        const m = t.match(/\[\s*DAYS_PASSED\s*:\s*(\d+)/i);
+        if (m) return Math.min(parseInt(m[1], 10), MAX_DAYS_PER_TAG);
+    }
+    return null;
 }
 
 // Записывает на сообщение (и в его свайп): какие теги сняты, с какого
 // варианта, что они применены. Убирает теги из видимого текста.
-function stampMessage(msg, swipe, tags, sig, rolls) {
+function stampMessage(msg, swipe, tags, sig, rolls, daysOverride = daysOverrideOf(msg)) {
     if (!msg) return;
     msg.extra = msg.extra || {};
     const clean = cleanText(msg.mes);
@@ -183,6 +213,8 @@ function stampMessage(msg, swipe, tags, sig, rolls) {
         else delete extra.lifeweaverRaw; // иначе остался бы исходник чужого варианта
         if (hasRolls) extra.lifeweaverRolls = structuredClone(rolls);
         else delete extra.lifeweaverRolls;
+        if (daysOverride !== null) extra.lifeweaverDaysOverride = daysOverride;
+        else delete extra.lifeweaverDaysOverride;
     };
     write(msg.extra);
     // Тот же набор — в swipe_info этого свайпа: при перелистывании Таверна
@@ -201,7 +233,74 @@ function stampMessage(msg, swipe, tags, sig, rolls) {
     }
 }
 
-const OUR_FIELDS = ['lifeweaverTags', 'lifeweaverSwipe', 'lifeweaverApplied', 'lifeweaverRaw', 'lifeweaverRolls'];
+const OUR_FIELDS = ['lifeweaverTags', 'lifeweaverSwipe', 'lifeweaverApplied', 'lifeweaverRaw', 'lifeweaverRolls', 'lifeweaverDaysOverride'];
+
+// ═══════════════════════════════════════════
+// РУЧНАЯ ПРАВКА ДНЕЙ (диагностика)
+// ═══════════════════════════════════════════
+
+// Данные для строки «Дни в этом ответе». Читается с самого сообщения, а не
+// из последнего скана — поэтому работает и после F5.
+// Править можно только последнее сообщение чата и только ответ модели:
+// после него нечего пересчитывать заново.
+export function getDaysFixInfo() {
+    const ctx = getStContext();
+    const chat = ctx?.chat;
+    if (!chat?.length) return { ok: false, reason: 'В чате пока нет сообщений.' };
+    const idx = chat.length - 1;
+    const msg = chat[idx];
+    if (!msg || msg.is_system) return { ok: false, reason: 'Последнее сообщение — системное, править нечего.' };
+    if (msg.is_user) return { ok: false, reason: 'Последнее сообщение — твоё. Править дни можно только у ответа модели, который стоит последним в чате.' };
+    const { tags, override } = composeScanText(msg);
+    const model = modelDaysOf(tags);
+    return {
+        ok: true,
+        mesIndex: idx,
+        swipe: swipeIdOf(msg),
+        model,
+        override,
+        effective: override ?? model ?? 0,
+        max: MAX_DAYS_PER_TAG,
+    };
+}
+
+// Поставить (число) или снять (null) правку дней у последнего ответа и
+// сразу пересчитать состояние. Возвращает { ok, message }.
+export function setDaysOverride(value) {
+    try {
+        const info = getDaysFixInfo();
+        if (!info.ok) return { ok: false, message: info.reason };
+        let v = null;
+        if (value !== null && value !== undefined && value !== '') {
+            v = parseInt(value, 10);
+            if (!Number.isInteger(v) || v < 0) return { ok: false, message: 'Нужно целое число от 0.' };
+            v = Math.min(v, MAX_DAYS_PER_TAG);
+        }
+        // Правка, совпадающая с моделью, — это просто «как у модели»
+        if (v !== null && v === info.model) v = null;
+
+        const ctx = getStContext();
+        const msg = ctx.chat[info.mesIndex];
+        const swipe = swipeIdOf(msg);
+        const { tags } = composeScanText(msg);
+        // Отметка варианта пишется вместе с правкой; подпись «применено»
+        // оставляем старой — runScan увидит расхождение и пересчитает.
+        const oldApplied = variantExtraOf(msg)?.lifeweaverApplied?.sig ?? null;
+        stampMessage(msg, swipe, tags, oldApplied, recordedRollsOf(msg), v);
+
+        runScan(v === null ? 'ПРАВКА ДНЕЙ: как у модели' : `ПРАВКА ДНЕЙ: ${v}`);
+        try { ctx.saveChat?.(); } catch (e) { /* ignore */ }
+        return {
+            ok: true,
+            message: v === null
+                ? `Вернул как у модели: ${info.model ?? 0} дн.`
+                : `Поставил ${v} дн. вместо ${info.model ?? 'ничего'} — состояние пересчитано.`,
+        };
+    } catch (e) {
+        console.error('[Lifeweaver] setDaysOverride error:', e);
+        return { ok: false, message: 'Не получилось — подробности в консоли.' };
+    }
+}
 
 // Основа «зерна» для кубиков варианта сообщения. Время отправки варианта
 // не меняется ни при перелистывании, ни при удалении других сообщений;
@@ -736,6 +835,7 @@ function runScan(trigger = '?') {
                 return p?.isPregnant ? `${w}: ${p.weeks} нед., stage=${p.stage}, ${p.offspringCount} шт.` : `${w}: нет`;
             }),
             днейПрошло: result?.daysPassed || 0,
+            правкаДней: daysOverrideOf(lastMessage) ?? undefined,
             применено: [],
         };
 

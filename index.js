@@ -22,7 +22,7 @@ import {
 } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, getMilestoneProgress, formatAge, sexLabel, TIME_BUCKETS } from './baby-care.js';
-import { initAutomation, refreshRegenSnapshot, clearRegenState, getLastScanDebug } from './automation.js';
+import { initAutomation, refreshRegenSnapshot, clearRegenState, getLastScanDebug, getDaysFixInfo, setDaysOverride } from './automation.js';
 import { showBirthDialog, showNotification } from './notifications.js';
 import { renderInfoblock } from './infoblock.js';
 import { PANEL_STYLES, COLOR_SCHEMES, DEFAULT_APPEARANCE, applyAppearanceEverywhere } from './appearance.js';
@@ -1848,6 +1848,7 @@ function renderSettingsSection() {
         <div class="lw-settings-group">
             <h3 class="lw-content-subtitle">Диагностика</h3>
             <p class="lw-placeholder-note">Что расширение увидело в последнем сообщении. Если событие не сработало — смотри сюда.</p>
+            <div id="lw_days_fix" class="lw-debug-box" style="margin-bottom: 10px;">${renderDaysFix()}</div>
             <div id="lw_debug_box" class="lw-debug-box">${renderDebugBox()}</div>
             <div class="lw-child-actions" style="margin-top: 10px;">
                 <button type="button" class="lw-btn lw-btn-muted" id="lw_debug_refresh">Обновить</button>
@@ -1881,6 +1882,35 @@ function renderDebugBox() {
         ${comments}
         <div class="lw-debug-row"><span class="lw-dim">Хвост текста:</span></div>
         <div class="lw-debug-tail">${escapeHtml(d.хвостТекста || '')}</div>
+    `;
+}
+
+// ─── Строка «Дни в этом ответе» ───
+// Данные берутся с самого сообщения, а не из последнего скана — работает и
+// после перезагрузки. res — результат последнего нажатия (для подписи).
+function renderDaysFix(res = null) {
+    const info = getDaysFixInfo();
+    const note = res
+        ? `<div class="lw-debug-row ${res.ok ? '' : 'lw-dim'}" style="margin-top:6px;">${escapeHtml(res.message)}</div>`
+        : '';
+    if (!info.ok) {
+        return `<div class="lw-debug-row"><b>Дни в этом ответе</b></div><div class="lw-dim">${escapeHtml(info.reason)}</div>${note}`;
+    }
+    const modelText = info.model === null ? 'тега нет' : `${info.model} дн.`;
+    const fixed = info.override !== null;
+    const status = fixed
+        ? `по модели: ${modelText} · <b>исправлено: ${info.override} дн.</b>`
+        : `по модели: ${modelText}`;
+    return `
+        <div class="lw-debug-row"><b>Дни в этом ответе</b> <span class="lw-dim">· сообщение #${info.mesIndex}${info.swipe !== null ? `, свайп ${info.swipe}` : ''}</span></div>
+        <div class="lw-debug-row">${status}</div>
+        <div class="lw-child-actions" style="margin-top: 8px; align-items: center;">
+            <input type="number" class="lw-input" id="lw_days_input" min="0" max="${info.max}" value="${info.effective}" style="width: 90px; flex: 0 0 auto;">
+            <button type="button" class="lw-btn" id="lw_days_apply">Применить</button>
+            ${fixed ? '<button type="button" class="lw-btn lw-btn-muted" id="lw_days_reset">Как у модели</button>' : ''}
+        </div>
+        <div class="lw-dim" style="margin-top:6px; font-size: 0.85em;">Правка живёт на этом варианте ответа: переживает листание свайпов, перезагрузку и ретроскан. Отменяется кнопкой «Как у модели».</div>
+        ${note}
     `;
 }
 
@@ -2100,7 +2130,22 @@ function bindSettingsEvents() {
     });
 
     $('#lw_debug_refresh').on('click', () => {
+        $('#lw_days_fix').html(renderDaysFix());
         $('#lw_debug_box').html(renderDebugBox());
+    });
+    // Правка дней в последнем ответе. Делегирование — строка перерисовывается.
+    const afterDaysFix = (res) => {
+        $('#lw_days_fix').html(renderDaysFix(res));
+        $('#lw_debug_box').html(renderDebugBox());
+    };
+    $('#lw_days_fix').on('click', '#lw_days_apply', () => {
+        afterDaysFix(setDaysOverride($('#lw_days_input').val()));
+    });
+    $('#lw_days_fix').on('keydown', '#lw_days_input', (e) => {
+        if (e.key === 'Enter') afterDaysFix(setDaysOverride($('#lw_days_input').val()));
+    });
+    $('#lw_days_fix').on('click', '#lw_days_reset', () => {
+        afterDaysFix(setDaysOverride(null));
     });
     $('#lw_debug_prompt').on('click', () => {
         const prompt = buildPrompt();

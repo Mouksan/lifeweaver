@@ -7,6 +7,8 @@
 // полем для имени — фокус сразу в первом поле. Плюс лёгкие тосты на события.
 
 import { sexLabel } from './baby-care.js';
+import { extension_settings } from '../../../extensions.js';
+import { extensionName } from './config.js';
 
 // Русское склонение по числу: 1 малыш, 2 малыша, 5 малышей
 export function plural(n, one, few, many) {
@@ -26,8 +28,25 @@ function escapeHtml(str) {
 
 // ─── Тост ───
 const MAX_TOASTS = 4;
+const AUTO_TIMEOUT = 5000;
 
-export function showNotification(html, type = 'info', timeout = 5000) {
+// Сколько живёт сюжетный тост: null — до клика, иначе миллисекунды.
+// Настройка «Уведомления исчезают» в панели.
+function storyTimeout() {
+    const mode = extension_settings?.[extensionName]?.toastMode || 'click';
+    if (mode === '5') return 5000;
+    if (mode === '15') return 15000;
+    return null;
+}
+
+// opts.story — сюжетное событие (зачатие, роды, потеря, тест…): живёт по
+// настройке, по умолчанию до клика. Остальное — служебные ответы на нажатия
+// в панели — исчезает само через 5 секунд. Число вместо opts — старый
+// вызов с явным временем жизни.
+export function showNotification(html, type = 'info', opts = {}) {
+    const timeout = typeof opts === 'number' ? opts
+        : opts?.story ? storyTimeout()
+        : AUTO_TIMEOUT;
     let $wrap = $('#lw_toasts');
     if (!$wrap.length) {
         $wrap = $('<div id="lw_toasts"></div>').appendTo('body');
@@ -38,14 +57,24 @@ export function showNotification(html, type = 'info', timeout = 5000) {
     if ($existing.length >= MAX_TOASTS) {
         $existing.slice(0, $existing.length - MAX_TOASTS + 1).remove();
     }
-    const $toast = $(`<div class="lw-toast lw-toast-${type}">${html}</div>`);
+    const sticky = timeout === null;
+    const $toast = $(`<div class="lw-toast lw-toast-${type}" title="Нажми, чтобы закрыть">
+        <span class="lw-toast-close" aria-hidden="true"><i class="fa-solid fa-xmark"></i></span>
+        <div class="lw-toast-body">${html}</div>
+    </div>`);
     $wrap.append($toast);
     try { document.dispatchEvent(new CustomEvent('lifeweaver:appearance')); } catch (e) { /* ignore */ }
     setTimeout(() => $toast.addClass('lw-toast-in'), 10);
-    setTimeout(() => {
+
+    let closed = false;
+    const close = () => {
+        if (closed) return;
+        closed = true;
         $toast.removeClass('lw-toast-in');
         setTimeout(() => $toast.remove(), 300);
-    }, timeout);
+    };
+    $toast.on('click', close);
+    if (!sticky) setTimeout(close, timeout);
 }
 
 // ─── Диалог рождения ───

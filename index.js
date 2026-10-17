@@ -1805,6 +1805,15 @@ function renderSettingsSection() {
                 <input type="checkbox" id="lw_setting_notifications" ${s.showNotifications ? 'checked' : ''}>
                 Показывать уведомления о событиях
             </label>
+            <label class="lw-checkbox-row" style="gap: 10px;">
+                Сюжетные уведомления исчезают
+                <select class="lw-select" id="lw_setting_toastMode" style="width: auto;">
+                    <option value="click" ${(s.toastMode || 'click') === 'click' ? 'selected' : ''}>по клику</option>
+                    <option value="5" ${s.toastMode === '5' ? 'selected' : ''}>через 5 сек</option>
+                    <option value="15" ${s.toastMode === '15' ? 'selected' : ''}>через 15 сек</option>
+                </select>
+            </label>
+            <p class="lw-placeholder-note">Зачатие, роды, потери, тесты и предупреждения висят по этой настройке. Служебные ответы на нажатия в панели исчезают сами.</p>
         </div>
 
         <div class="lw-settings-group">
@@ -2077,6 +2086,11 @@ function bindCustomPresetEvents() {
 function bindSettingsEvents() {
     $('#lw_setting_notifications').on('change', function () {
         setShowNotifications($(this).is(':checked'));
+        saveSettings();
+    });
+    $('#lw_setting_toastMode').on('change', function () {
+        const v = $(this).val();
+        getSettings().toastMode = ['click', '5', '15'].includes(v) ? v : 'click';
         saveSettings();
     });
     $('#lw_setting_infoblockPosition').on('change', function () {

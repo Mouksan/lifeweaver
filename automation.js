@@ -68,7 +68,7 @@ import { renderInfoblock } from './infoblock.js';
 export const HISTORY_CAP = 25;
 // Печатается в консоль при загрузке — видно, какая версия реально работает
 // (браузер любит держать старый файл в кэше).
-const AUTOMATION_BUILD = '2.10.2';
+const AUTOMATION_BUILD = '2.10.3';
 
 // ── Состояние обработки (живёт в памяти, не в настройках) ──
 let _isRegeneration = false;
@@ -797,7 +797,9 @@ function applyScanResult(result, debug = null, rolls = null) {
 
 function notify(html, type) {
     try {
-        if (getSettings().showNotifications) showNotification(html, type);
+        // Всё, что сообщает автоматика, — сюжетные события и предупреждения:
+        // живут по настройке «Уведомления исчезают» (по умолчанию до клика).
+        if (getSettings().showNotifications) showNotification(html, type, { story: true });
     } catch (e) { /* ignore */ }
 }
 

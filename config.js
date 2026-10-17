@@ -193,6 +193,8 @@ export const defaultSettings = {
     pregnancyDuration: 40,
     // Показывать ли уведомления о событиях
     showNotifications: true,
+    // Сколько живут сюжетные уведомления: 'click' — до клика, '5' / '15' — секунд
+    toastMode: 'click',
     // Оформление панели: стиль отрисовки, цветовая схема, прозрачность, шрифт
     appearance: {
         panelStyle: 'legacy',

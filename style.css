@@ -855,7 +855,10 @@
 }
 
 .lw-toast {
-    padding: 10px 14px;
+    position: relative;
+    pointer-events: auto;
+    cursor: pointer;
+    padding: 10px 26px 10px 14px;
     border-radius: 6px;
     background: var(--lw-panel);
     backdrop-filter: blur(var(--lw-blur));
@@ -874,6 +877,20 @@
 .lw-toast-in {
     opacity: 1;
     transform: translateX(0);
+}
+
+.lw-toast-close {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    font-size: 0.75rem;
+    color: var(--lw-text-dim);
+    opacity: 0.6;
+    transition: opacity 0.15s ease;
+}
+
+.lw-toast:hover .lw-toast-close {
+    opacity: 1;
 }
 
 .lw-toast-success { border-left-color: #5aa86a; }

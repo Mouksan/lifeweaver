@@ -82,6 +82,65 @@ export function getSymptoms(poolKey, progressPercent, seed = 0, terms = {}, en =
     return seededPick(stage.pool, stage.count, seed).map(s => applyTerms(pick(s, en), terms));
 }
 
+// ─── Ранние симптомы по дням с зачатия (2.10.4) ───
+// Процентные ступени выше грубые: первая покрывает целых 4 недели, и тошнота
+// могла выпасть через минуту после зачатия. В реальности (счёт от зачатия):
+// первую неделю ничего, на второй имплантация — максимум лёгкие спазмы,
+// с двух недель усталость/грудь/обоняние, тошнота — примерно с четырёх.
+// Поэтому начало беременности считается по дням, а дальше — по проценту.
+// Для коротких беременностей шкала сжимается пропорционально.
+const EARLY_NONE = ['пока ничего', 'too early for any pregnancy symptoms — the body feels completely normal'];
+
+const EARLY_HUMAN = {
+    refWeeks: 40,
+    tiers: [
+        { toDay: 7, none: true },
+        { toDay: 14, count: 1, pool: [['лёгкие спазмы внизу живота', 'faint cramps low in the belly'], ['лёгкая усталость', 'slight tiredness'], ['ничего заметного', 'nothing noticeable yet']] },
+        { toDay: 21, count: 2, pool: [['повышенная усталость', 'increased fatigue'], ['сонливость днём', 'daytime drowsiness'], ['покалывание в груди', 'tingling in the chest'], ['обострение обоняния', 'heightened sense of smell'], ['частое мочеиспускание', 'frequent urination'], ['перепады настроения', 'mood swings'], ['изменения аппетита', 'appetite changes']] },
+        { toDay: 28, count: 3, pool: [['повышенная усталость', 'increased fatigue'], ['сонливость днём', 'daytime drowsiness'], ['покалывание в груди', 'tingling in the chest'], ['обострение обоняния', 'heightened sense of smell'], ['частое мочеиспускание', 'frequent urination'], ['перепады настроения', 'mood swings'], ['изменения аппетита', 'appetite changes']] },
+    ],
+};
+
+const EARLY_STAGED = {
+    refWeeks: 20,
+    tiers: [
+        { toDay: 7, none: true },
+        { toDay: 14, count: 1, pool: [['едва заметная тяжесть внизу живота', 'a barely noticeable heaviness low in the belly'], ['аппетит чуть больше обычного', 'appetite a little bigger than usual'], ['ничего заметного', 'nothing noticeable yet']] },
+    ],
+};
+
+const EARLY_POOLS = { human: EARLY_HUMAN, stagedBody: EARLY_STAGED };
+
+// Какая ранняя ступень сейчас: { index, tier } или null, если срок уже вышел
+// за раннюю шкалу и пора процентным ступеням.
+function earlyTierFor(poolKey, days, stageMaxWeeks) {
+    const early = EARLY_POOLS[poolKey];
+    if (!early) return null;
+    const scale = Math.min(1, Math.max(0.05, (Number(stageMaxWeeks) || early.refWeeks) / early.refWeeks));
+    const d = Math.max(0, Number(days) || 0);
+    for (let i = 0; i < early.tiers.length; i++) {
+        if (d < early.tiers[i].toDay * scale) return { index: i, tier: early.tiers[i] };
+    }
+    return null;
+}
+
+// Первые дни, когда тело ещё ничего не замечает
+export function isTooEarlyForSymptoms(poolKey, days, stageMaxWeeks) {
+    return !!earlyTierFor(poolKey, days, stageMaxWeeks)?.tier.none;
+}
+
+// Симптомы беременности с учётом ранней шкалы. Пустой массив не бывает:
+// в первые дни возвращается одна строка «пока ничего».
+export function getPregnancySymptoms(poolKey, { weeks = 0, days = 0, stageMax = 40 } = {}, terms = {}, en = false) {
+    const early = earlyTierFor(poolKey, days, stageMax);
+    if (early) {
+        if (early.tier.none) return [pick(EARLY_NONE, en)];
+        return seededPick(early.tier.pool, early.tier.count, 900 + early.index).map(s => applyTerms(pick(s, en), terms));
+    }
+    const pct = Math.round((weeks / Math.max(1, stageMax)) * 100);
+    return getSymptoms(poolKey, pct, weeks, terms, en);
+}
+
 // ─── Рекомендации по сроку (формулировки вдохновителя) ───
 const HUMAN_RECOMMENDATIONS = [
     { upTo: 10, text: ['Начальная стадия, отдых, правильное питание', 'Early stage, rest, proper nutrition'] },

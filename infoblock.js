@@ -14,11 +14,11 @@
 
 import { getSettings, getActivePreset, getCharacterData, carrierDisplayName, currentStageMaxWeeks,
          getClutches, getChildren, getPostpartum, isPregnancyObvious, getTimeForCare, getRpDay,
-         getDynamic, getChildDynamic, getCyclePhase } from './state.js';
+         getDynamic, getChildDynamic, getCyclePhase, daysSinceConception } from './state.js';
 import { termsOf } from './config.js';
 import { childAgeDays, getGrowthStage, getCareNeeds, getCareNorms, getMilestoneProgress, formatAge, sexLabel } from './baby-care.js';
 import { activeComplications, bodyPoolFor } from './health.js';
-import { getSymptoms, getCycleState } from './symptoms.js';
+import { getSymptoms, getCycleState, isTooEarlyForSymptoms } from './symptoms.js';
 
 function esc(str) {
     return String(str ?? '').replace(/[&<>"']/g, c => (
@@ -92,8 +92,10 @@ function carrierSection(who, preset) {
         const dyn = getDynamic(who);
 
         if (hidden) {
+            // В первые дни тело ещё ничего не замечает — «что-то не так» было бы спойлером
+            const tooEarly = isTooEarlyForSymptoms(bodyPoolFor(preset), daysSinceConception(who), currentStageMaxWeeks(preset, p));
             return section(`p:${who}`, 'pregnancy', 'fa-heart', name, 'самочувствие', '',
-                stat('fa-question', 'purple', 'Состояние', 'что-то не так', true) +
+                stat('fa-question', 'purple', 'Состояние', tooEarly ? 'ничего не чувствует' : 'что-то не так', true) +
                 stat('fa-comment', 'purple', 'Ощущения', dyn.note, true));
         }
 

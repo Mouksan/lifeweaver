@@ -29,7 +29,7 @@ import { PANEL_STYLES, COLOR_SCHEMES, DEFAULT_APPEARANCE, applyAppearanceEverywh
 import { readImageFile, uploadAvatar } from './avatars.js';
 import { scanFullHistory, estimateHistory } from './history-scan.js';
 import { activeComplications, getHealthInfo, TEST_LABELS, EYE_OPTIONS, HAIR_OPTIONS, bodyPoolFor, testReliability } from './health.js';
-import { getSymptoms, getRecommendation, getCycleState } from './symptoms.js';
+import { getSymptoms, getRecommendation, getCycleState, getPregnancySymptoms, isTooEarlyForSymptoms } from './symptoms.js';
 import { updatePromptInjection, buildPrompt } from './prompts.js';
 
 const extensionFolderPath = `scripts/extensions/${extensionName}`;
@@ -373,9 +373,11 @@ function stateTile(preset) {
             const max = currentStageMaxWeeks(preset, p);
             const hidden = getSettings().hiddenPregnancy && !isPregnancyObvious(who);
             const pct = Math.round((p.weeks / Math.max(1, max)) * 100);
-            title = hidden ? 'Что-то не так' : `${preset.gestationType === 'staged' ? preset.stages.first.label : 'Беременность'} · ${p.weeks} нед.`;
+            const pDays = daysSinceConception(who);
+            const tooEarly = isTooEarlyForSymptoms(bodyPoolFor(preset), pDays, max);
+            title = hidden ? (tooEarly ? 'Ничего не чувствует' : 'Что-то не так') : `${preset.gestationType === 'staged' ? preset.stages.first.label : 'Беременность'} · ${p.weeks} нед.`;
             // Живое от модели важнее табличных догадок
-            lines = dyn.physical ? [dyn.physical] : getSymptoms(bodyPoolFor(preset), pct, p.weeks, termsOf(preset)).slice(0, 3);
+            lines = dyn.physical ? [dyn.physical] : getPregnancySymptoms(bodyPoolFor(preset), { weeks: p.weeks, days: pDays, stageMax: max }, termsOf(preset)).slice(0, 3);
             if (dyn.mood) chips.push(['настроение', dyn.mood]);
             if (dyn.libido) chips.push(['либидо', dyn.libido]);
             const info = getHealthInfo(p.healthStatus || 'normal');
@@ -936,7 +938,7 @@ function renderPregnancyProgress(pregnancy, preset, totalWeeks, who) {
     const symptomsHtml = `
         <div class="lw-symptoms">
             <div class="lw-card-label">Сейчас в теле</div>
-            ${getSymptoms(bodyPoolFor(preset), pct, pregnancy.weeks, termsOf(preset)).map(s => `<div>• ${s}</div>`).join('')}
+            ${getPregnancySymptoms(bodyPoolFor(preset), { weeks: pregnancy.weeks, days: daysSinceConception(who), stageMax }, termsOf(preset)).map(s => `<div>• ${s}</div>`).join('')}
             <div class="lw-rec"><i class="fa-solid fa-lightbulb"></i> ${getRecommendation(bodyPoolFor(preset), pct, termsOf(preset))}</div>
         </div>
     `;

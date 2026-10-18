@@ -24,10 +24,10 @@
 
 import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { extensionName, CONTRACEPTION_TYPES, termsOf } from './config.js';
-import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid, getHealthHolders, predictTest, getPostpartum, getDynamic, getChildDynamic, getCyclePhase } from './state.js';
+import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid, getHealthHolders, predictTest, getPostpartum, getDynamic, getChildDynamic, getCyclePhase, daysSinceConception } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { activeComplications, TEST_LABELS, bodyPoolFor } from './health.js';
-import { getSymptoms, getRecommendation, getCycleState } from './symptoms.js';
+import { getSymptoms, getRecommendation, getCycleState, getPregnancySymptoms, isTooEarlyForSymptoms } from './symptoms.js';
 import { childAgeDays, getGrowthStage, getCareNorms, getCareNeeds, timeBucket, formatAge, sexLabel } from './baby-care.js';
 
 function designationLabelEn(d) {
@@ -100,10 +100,17 @@ function characterStatusContext(who, preset) {
         const pct = Math.round((pregnancy.weeks / Math.max(1, stageMax)) * 100);
         const pool = bodyPoolFor(preset);
         const hidden = getSettings().hiddenPregnancy && !isPregnancyObvious(who);
-        const symptoms = getSymptoms(pool, pct, pregnancy.weeks, termsOf(preset), true);
-        b += hidden
-            ? `  Body right now (${name} does not connect these to a pregnancy yet): ${symptoms.join(', ')}.\n`
-            : `  Body right now: ${symptoms.join(', ')}. Weave these in physically; do not list them.\n`;
+        const days = daysSinceConception(who);
+        if (isTooEarlyForSymptoms(pool, days, stageMax)) {
+            // Первые дни: тело ещё ничего не замечает — так и говорим модели,
+            // иначе она сама дорисует тошноту «для атмосферы».
+            b += `  Body right now: too early for any pregnancy symptoms — ${name}'s body feels completely normal. Do not hint at the pregnancy through the body yet.\n`;
+        } else {
+            const symptoms = getPregnancySymptoms(pool, { weeks: pregnancy.weeks, days, stageMax }, termsOf(preset), true);
+            b += hidden
+                ? `  Body right now (${name} does not connect these to a pregnancy yet): ${symptoms.join(', ')}.\n`
+                : `  Body right now: ${symptoms.join(', ')}. Weave these in physically; do not list them.\n`;
+        }
         b += `  Advisable at this stage: ${getRecommendation(pool, pct, termsOf(preset), true)}.\n`;
         return b;
     }

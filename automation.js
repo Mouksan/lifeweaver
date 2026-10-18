@@ -68,7 +68,7 @@ import { renderInfoblock } from './infoblock.js';
 export const HISTORY_CAP = 25;
 // Печатается в консоль при загрузке — видно, какая версия реально работает
 // (браузер любит держать старый файл в кэше).
-const AUTOMATION_BUILD = '2.10.3';
+const AUTOMATION_BUILD = '2.10.4';
 
 // ── Состояние обработки (живёт в памяти, не в настройках) ──
 let _isRegeneration = false;
